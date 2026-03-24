@@ -1,0 +1,35 @@
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: #111318;
+  border-right: 1px solid #1f2128;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sidebar h2 {
+  color: #f4f4f5;
+  font-size: 17px;
+  font-weight: 600;
+  padding-left: 4px;
+}
+
+.new-note-btn {
+  padding: 10px 14px;
+  background: #a78bfa;
+  color: #1a0a2e;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.new-note-btn:hover {
+  background: #c4b5fd;
+}
