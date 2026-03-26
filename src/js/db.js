@@ -29,14 +29,3 @@ export const getAllNotes = async () => {
   const db = await initDB();
   return db.getAll(NOTES_STORE);
 };
-
-
-export const saveImage = async (image) => {
-  const db = await initDB();
-  await db.put(IMAGES_STORE, image);
-};
-
-export const getImage = async (id) => {
-  const db = await initDB();
-  return db.get(IMAGES_STORE, id);
-};

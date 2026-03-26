@@ -1,5 +1,3 @@
-// crypto.js
-
 export const generateSalt = (length = 16) => crypto.getRandomValues(new Uint8Array(length));
 
 export const deriveKey = async (passphrase, salt) => {

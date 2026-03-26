@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
@@ -116,7 +116,7 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
             editor={ClassicEditor}
             data={markdown}
             onReady={(editor) => (editorRef.current = editor)}
-            onChange={(event, editor) => setMarkdown(editor.getData())}
+            onChange={(editor) => setMarkdown(editor.getData())}
           />
 
           <div className="editor-actions">
