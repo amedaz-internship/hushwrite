@@ -4,6 +4,8 @@ import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
 import { saveNote, getAllNotes } from "../js/db";
 import { v4 as uuid4 } from "uuid";
+import Preview from "./Preview.jsx";
+import SavedNote from "./SavedNote.jsx";
 import "../style/markdown.css";
 
 const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
@@ -26,12 +28,7 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
     }
 
     const id = currentId || uuid4();
-    const note = {
-      id,
-      content: markdown,
-      createdAt: new Date().toISOString(),
-    };
-
+    const note = { id, content: markdown, createdAt: new Date().toISOString() };
     await saveNote(note);
     setCurrentId(id);
 
@@ -53,18 +50,14 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
+      const imageHTML = `<figure class="image"><img src="${dataUrl}" alt="${file.name}" style="max-width:100%;" /></figure>`;
 
       if (editorRef.current) {
-        const imageHTML = `<figure class="image"><img src="${dataUrl}" alt="${file.name}" style="max-width:100%;" /></figure>`;
         const viewFragment = editorRef.current.data.processor.toView(imageHTML);
         const modelFragment = editorRef.current.data.toModel(viewFragment);
         editorRef.current.model.insertContent(modelFragment);
       } else {
-        setMarkdown(
-          (prev) =>
-            prev +
-            `<figure class="image"><img src="${dataUrl}" alt="${file.name}" style="max-width:100%;" /></figure>`,
-        );
+        setMarkdown((prev) => prev + imageHTML);
       }
 
       toast.success("Image inserted!");
@@ -83,12 +76,8 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
           <CKEditor
             editor={ClassicEditor}
             data={markdown}
-            onReady={(editor) => {
-              editorRef.current = editor;
-            }}
-            onChange={(event, editor) => {
-              setMarkdown(editor.getData());
-            }}
+            onReady={(editor) => (editorRef.current = editor)}
+            onChange={(event, editor) => setMarkdown(editor.getData())}
             config={{
               toolbar: [
                 "heading",
@@ -125,46 +114,20 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
               onChange={handleImageUpload}
               style={{ display: "none" }}
             />
-
             <button
-              className="image-upload-btn"
+              className="save-btn"
               onClick={() => fileInputRef.current?.click()}
-              title="Attach image"
             >
               Attach Image
             </button>
-
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
           </div>
         </div>
-
-        <div className="preview">
-          <h3>Preview</h3>
-
-          <div
-            className="markdown-preview ck-content"
-            dangerouslySetInnerHTML={{ __html: markdown }}
-          />
-
-          <div className="notes-list">
-            <h3>Saved Notes</h3>
-            <div className="notes-cards">
-              {notes.map((note) => (
-                <div
-                  key={note.id}
-                  className="note-card"
-                  onClick={() => loadNote(note)}
-                >
-                  <p>
-                    {note.content.replace(/<[^>]+>/g, "").substring(0, 60)}...
-                  </p>
-                  <small>{new Date(note.createdAt).toLocaleString()}</small>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="left-side">
+          <Preview markdown={markdown} />
+          <SavedNote notes={notes} loadNote={loadNote} />
         </div>
       </div>
     </main>
