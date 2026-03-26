@@ -4,6 +4,7 @@ import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
 import { saveNote, getAllNotes } from "../js/db";
 import { v4 as uuid4 } from "uuid";
+import ExportNote from "./ExportNotes.jsx";
 import Preview from "./Preview.jsx";
 import SavedNote from "./SavedNote.jsx";
 import "../style/markdown.css";
@@ -123,6 +124,10 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
+
+            <ExportNote
+              note={{ content: markdown, title: `note-${Date.now()}` }}
+            />
           </div>
         </div>
         <div className="left-side">

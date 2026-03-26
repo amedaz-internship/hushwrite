@@ -13,12 +13,14 @@
     "@ckeditor/ckeditor5-build-classic": "^41.4.2",
     "@ckeditor/ckeditor5-build-decoupled-document": "^41.4.2",
     "@ckeditor/ckeditor5-react": "^11.1.0",
+    "html2pdf.js": "^0.14.0",
     "idb": "^8.0.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
+    "turndown": "^7.2.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
