@@ -23,6 +23,7 @@ const ExportNote = ({ note }) => {
     const tempDiv = document.createElement("div");
     tempDiv.style.width = "210mm";
     tempDiv.style.padding = "20px";
+    tempDiv.innerHTML = note.content;
     document.body.appendChild(tempDiv);
 
     html2pdf()
