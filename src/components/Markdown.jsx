@@ -20,21 +20,23 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    const loadNotes = async () => {
-      const savedNotes = await getAllNotes();
-      setNotes(savedNotes);
-    };
     loadNotes();
   }, []);
 
-  const requestPassphrase = (noteTitle = "this note") => {
-    const input = prompt(`Enter passphrase for ${noteTitle}:`);
-    if (!input) throw new Error("Passphrase required");
-    return input;
+  const loadNotes = async () => {
+    const saved = await getAllNotes();
+    setNotes(saved);
   };
+
+  const requestPassphrase = () => {
+    const pw = prompt("Enter passphrase:");
+    if (!pw) throw new Error("Passphrase required");
+    return pw;
+  };
+
   const onSave = async () => {
     if (!markdown.trim()) {
-      toast.error("Cannot save empty note!");
+      toast.error("Empty note!");
       return;
     }
 
@@ -42,23 +44,25 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
       const pw = requestPassphrase();
       const salt = generateSalt();
       const key = await deriveKey(pw, salt);
-      const { ciphertext, iv } = await encryptContent(markdown, key);
+
+      const { ciphertext, iv, hash } = await encryptContent(markdown, key);
 
       const id = currentId || uuid4();
+
       const note = {
         id,
         ciphertext: Array.from(ciphertext),
         iv: Array.from(iv),
         salt: Array.from(salt),
+        hash,
         createdAt: new Date().toISOString(),
       };
 
       await saveNote(note);
       setCurrentId(id);
+      await loadNotes();
 
-      const savedNotes = await getAllNotes();
-      setNotes(savedNotes);
-      toast.success("Note encrypted and saved!");
+      toast.success("Encrypted & saved!");
     } catch (err) {
       toast.error(err.message);
     }
@@ -66,23 +70,29 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
 
   const loadNote = async (note) => {
     try {
-      const pw = requestPassphrase(note.title || "this note");
-
+      const pw = requestPassphrase();
       const key = await deriveKey(pw, new Uint8Array(note.salt));
 
       const decrypted = await decryptContent(
         new Uint8Array(note.ciphertext),
         key,
         new Uint8Array(note.iv),
+        note.hash,
       );
 
       setMarkdown(decrypted);
       setCurrentId(note.id);
-      toast.success("Note decrypted and loaded!");
+
+      if (editorRef.current) {
+        editorRef.current.setData(decrypted);
+      }
+
+      toast.success("Note loaded!");
     } catch (err) {
       toast.error(err.message);
     }
   };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -90,22 +100,15 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-      const imageHTML = `<figure class="image"><img src="${dataUrl}" alt="${file.name}" style="max-width:100%;" /></figure>`;
+
+      const html = `<figure class="image"><img src="${dataUrl}" style="max-width:100%;" /></figure>`;
 
       if (editorRef.current) {
-        const viewFragment = editorRef.current.data.processor.toView(imageHTML);
-        const modelFragment = editorRef.current.data.toModel(viewFragment);
-        editorRef.current.model.insertContent(modelFragment);
-      } else {
-        setMarkdown((prev) => prev + imageHTML);
+        editorRef.current.setData(editorRef.current.getData() + html);
       }
-
-      toast.success("Image inserted!");
     };
 
-    reader.onerror = () => toast.error("Failed to read image.");
     reader.readAsDataURL(file);
-    e.target.value = "";
   };
 
   return (
@@ -116,7 +119,33 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
             editor={ClassicEditor}
             data={markdown}
             onReady={(editor) => (editorRef.current = editor)}
-            onChange={(editor) => setMarkdown(editor.getData())}
+            onChange={(event, editor) => setMarkdown(editor.getData())}
+            config={{
+              toolbar: [
+                "heading",
+                "|",
+                "bold",
+                "italic",
+                "link",
+                "bulletedList",
+                "numberedList",
+                "blockQuote",
+                "undo",
+                "redo",
+              ],
+              removePlugins: [
+                "CKFinder",
+                "CKFinderUploadAdapter",
+                "ImageToolbar",
+                "ImageCaption",
+                "ImageStyle",
+                "ImageUpload",
+                "ImageResizeEditing",
+                "ImageResizeHandles",
+                "MediaEmbed",
+                "EasyImage",
+              ],
+            }}
           />
 
           <div className="editor-actions">
@@ -124,21 +153,22 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
               ref={fileInputRef}
               type="file"
               accept="image/*"
+              hidden
               onChange={handleImageUpload}
-              style={{ display: "none" }}
             />
+
             <button
               className="save-btn"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => fileInputRef.current.click()}
             >
               Attach Image
             </button>
+
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
-            <ExportNote
-              note={{ content: markdown, title: `note-${Date.now()}` }}
-            />
+
+            <ExportNote note={{ content: markdown, title: "note" }} />
           </div>
         </div>
 

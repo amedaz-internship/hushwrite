@@ -1,7 +1,9 @@
-export const generateSalt = (length = 16) => crypto.getRandomValues(new Uint8Array(length));
+export const generateSalt = (length = 16) =>
+  crypto.getRandomValues(new Uint8Array(length));
 
 export const deriveKey = async (passphrase, salt) => {
   const enc = new TextEncoder();
+
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     enc.encode(passphrase),
@@ -24,27 +26,54 @@ export const deriveKey = async (passphrase, salt) => {
   );
 };
 
+
 export const encryptContent = async (content, key) => {
   const enc = new TextEncoder();
-  const iv = crypto.getRandomValues(new Uint8Array(12)); 
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const encoded = enc.encode(content);
+
+
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+  const hash = Array.from(new Uint8Array(hashBuffer));
+
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    enc.encode(content)
+    encoded
   );
 
-  return { ciphertext: new Uint8Array(ciphertext), iv };
+  return {
+    ciphertext: new Uint8Array(ciphertext),
+    iv,
+    hash,
+  };
 };
 
-export const decryptContent = async (ciphertext, key, iv) => {
+export const decryptContent = async (ciphertext, key, iv, storedHash) => {
+  const dec = new TextDecoder();
+
   try {
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
       key,
       ciphertext
     );
-    return new TextDecoder().decode(decrypted);
+
+    const text = dec.decode(decrypted);
+
+    const enc = new TextEncoder();
+    const newHashBuffer = await crypto.subtle.digest(
+      "SHA-256",
+      enc.encode(text)
+    );
+    const newHash = Array.from(new Uint8Array(newHashBuffer));
+
+    if (JSON.stringify(newHash) !== JSON.stringify(storedHash)) {
+      throw new Error("Tampered content!");
+    }
+    return text;
   } catch (err) {
-    throw new Error("Decryption failed: wrong passphrase or note corrupted");
+    throw new Error("⚠️ Note corrupted, tampered, or wrong password.");
   }
 };
