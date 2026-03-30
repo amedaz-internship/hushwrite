@@ -12,17 +12,25 @@ import {
   decryptContent,
   generateSalt,
 } from "../js/crypto";
+import "../style/markdown.css";
 
 const Markdown = ({
   markdown,
   setMarkdown,
   currentId,
   setCurrentId,
+  title,
+  setTitle,
   notes,
   setNotes,
 }) => {
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Reset title for new note
+  useEffect(() => {
+    if (!currentId) setTitle("");
+  }, [currentId, setTitle]);
 
   // Listen for loadNote event from Sidebar
   useEffect(() => {
@@ -43,6 +51,7 @@ const Markdown = ({
 
         setMarkdown(decrypted);
         setCurrentId(note.id);
+        setTitle(note.title || "");
 
         if (editorRef.current) {
           editorRef.current.setData(decrypted);
@@ -56,11 +65,16 @@ const Markdown = ({
 
     window.addEventListener("loadNote", handler);
     return () => window.removeEventListener("loadNote", handler);
-  }, [setMarkdown, setCurrentId]);
+  }, [setMarkdown, setCurrentId, setTitle]);
 
   const onSave = async () => {
     if (!markdown.trim()) {
       toast.error("Empty note!");
+      return;
+    }
+
+    if (!title.trim()) {
+      toast.error("Please enter a note title!");
       return;
     }
 
@@ -77,6 +91,7 @@ const Markdown = ({
 
       const note = {
         id,
+        title: title.trim(),
         ciphertext: Array.from(ciphertext),
         iv: Array.from(iv),
         salt: Array.from(salt),
@@ -87,7 +102,7 @@ const Markdown = ({
       await saveNote(note);
       setCurrentId(id);
 
-      // reload notes in Sidebar
+      // reload notes for sidebar
       const saved = await getAllNotes();
       setNotes(saved);
 
@@ -117,6 +132,17 @@ const Markdown = ({
     <main className="main-content">
       <div className="editor-preview">
         <div className="editor">
+          {/* Note title input */}
+          <div className="note-title-container">
+            <input
+              type="text"
+              placeholder="Enter note title..."
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="note-title-input"
+            />
+          </div>
+
           <CKEditor
             editor={ClassicEditor}
             data={markdown}
@@ -167,7 +193,7 @@ const Markdown = ({
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
-            <ExportNote note={{ content: markdown, title: "note" }} />
+            <ExportNote note={{ content: markdown, title }} />
           </div>
         </div>
 

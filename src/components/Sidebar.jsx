@@ -24,8 +24,8 @@ const Sidebar = ({ setMarkdown, setCurrentId, notes, loadNote }) => {
             className="sidebar-note"
             onClick={() => loadNote(note)}
           >
-            Note {new Date(note.createdAt).toLocaleDateString()}{" "}
-            {new Date(note.createdAt).toLocaleTimeString()}
+            <strong>{note.title || "Untitled Note"}</strong>
+            <small>{new Date(note.createdAt).toLocaleDateString()}</small>
           </div>
         ))}
       </div>

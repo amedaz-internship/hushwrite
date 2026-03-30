@@ -45,3 +45,73 @@
 .sidebar-note:hover {
   background: #2a2a2a;
 }
+
+.sidebar {
+  width: 220px;
+  background-color: #111;
+  color: #a78bfa;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar h2 {
+  margin-bottom: 20px;
+  font-size: 20px;
+}
+
+.new-note-btn {
+  background-color: #a78bfa;
+  color: #18181b;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+.new-note-btn:hover {
+  opacity: 0.9;
+}
+
+.sidebar-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-note {
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #1a1a1a;
+  transition: 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-note:hover {
+  background: #2a2a2a;
+}
+
+.sidebar-note small {
+  color: #777;
+  font-size: 11px;
+}
+
+.note-title-container {
+  margin-bottom: 10px;
+}
+
+.note-title-input {
+  width: 100%;
+  padding: 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  background-color: #111;
+  color: #a78bfa;
+}

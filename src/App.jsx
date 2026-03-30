@@ -8,8 +8,10 @@ import "./App.css";
 const App = () => {
   const [markdown, setMarkdown] = useState("");
   const [currentId, setCurrentId] = useState(null);
+  const [title, setTitle] = useState("");
   const [notes, setNotes] = useState([]);
 
+  // Load all notes on start
   const loadNotes = async () => {
     const saved = await getAllNotes();
     setNotes(saved);
@@ -19,6 +21,7 @@ const App = () => {
     loadNotes();
   }, []);
 
+  // Function to load a note from sidebar
   const loadNote = (note) => {
     const event = new CustomEvent("loadNote", { detail: note });
     window.dispatchEvent(event);
@@ -38,6 +41,8 @@ const App = () => {
         setMarkdown={setMarkdown}
         currentId={currentId}
         setCurrentId={setCurrentId}
+        title={title}
+        setTitle={setTitle}
         notes={notes}
         setNotes={setNotes}
       />
