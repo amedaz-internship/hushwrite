@@ -6,7 +6,6 @@ import { saveNote, getAllNotes } from "../js/db";
 import { v4 as uuid4 } from "uuid";
 import ExportNote from "./ExportNotes.jsx";
 import Preview from "./Preview.jsx";
-import SavedNote from "./SavedNote.jsx";
 import {
   deriveKey,
   encryptContent,
@@ -14,25 +13,50 @@ import {
   generateSalt,
 } from "../js/crypto";
 
-const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
-  const [notes, setNotes] = useState([]);
+const Markdown = ({
+  markdown,
+  setMarkdown,
+  currentId,
+  setCurrentId,
+  notes,
+  setNotes,
+}) => {
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Listen for loadNote event from Sidebar
   useEffect(() => {
-    loadNotes();
-  }, []);
+    const handler = async (e) => {
+      const note = e.detail;
+      try {
+        const pw = prompt("Enter passphrase to decrypt note:");
+        if (!pw) return;
 
-  const loadNotes = async () => {
-    const saved = await getAllNotes();
-    setNotes(saved);
-  };
+        const key = await deriveKey(pw, new Uint8Array(note.salt));
 
-  const requestPassphrase = () => {
-    const pw = prompt("Enter passphrase:");
-    if (!pw) throw new Error("Passphrase required");
-    return pw;
-  };
+        const decrypted = await decryptContent(
+          new Uint8Array(note.ciphertext),
+          key,
+          new Uint8Array(note.iv),
+          note.hash,
+        );
+
+        setMarkdown(decrypted);
+        setCurrentId(note.id);
+
+        if (editorRef.current) {
+          editorRef.current.setData(decrypted);
+        }
+
+        toast.success("Note loaded!");
+      } catch (err) {
+        toast.error(err.message);
+      }
+    };
+
+    window.addEventListener("loadNote", handler);
+    return () => window.removeEventListener("loadNote", handler);
+  }, [setMarkdown, setCurrentId]);
 
   const onSave = async () => {
     if (!markdown.trim()) {
@@ -41,7 +65,9 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
     }
 
     try {
-      const pw = requestPassphrase();
+      const pw = prompt("Enter passphrase:");
+      if (!pw) return;
+
       const salt = generateSalt();
       const key = await deriveKey(pw, salt);
 
@@ -60,34 +86,12 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
 
       await saveNote(note);
       setCurrentId(id);
-      await loadNotes();
+
+      // reload notes in Sidebar
+      const saved = await getAllNotes();
+      setNotes(saved);
 
       toast.success("Encrypted & saved!");
-    } catch (err) {
-      toast.error(err.message);
-    }
-  };
-
-  const loadNote = async (note) => {
-    try {
-      const pw = requestPassphrase();
-      const key = await deriveKey(pw, new Uint8Array(note.salt));
-
-      const decrypted = await decryptContent(
-        new Uint8Array(note.ciphertext),
-        key,
-        new Uint8Array(note.iv),
-        note.hash,
-      );
-
-      setMarkdown(decrypted);
-      setCurrentId(note.id);
-
-      if (editorRef.current) {
-        editorRef.current.setData(decrypted);
-      }
-
-      toast.success("Note loaded!");
     } catch (err) {
       toast.error(err.message);
     }
@@ -100,14 +104,12 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-
       const html = `<figure class="image"><img src="${dataUrl}" style="max-width:100%;" /></figure>`;
-
       if (editorRef.current) {
         editorRef.current.setData(editorRef.current.getData() + html);
+        setMarkdown(editorRef.current.getData());
       }
     };
-
     reader.readAsDataURL(file);
   };
 
@@ -156,25 +158,21 @@ const Markdown = ({ markdown, setMarkdown, currentId, setCurrentId }) => {
               hidden
               onChange={handleImageUpload}
             />
-
             <button
               className="save-btn"
               onClick={() => fileInputRef.current.click()}
             >
               Attach Image
             </button>
-
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
-
             <ExportNote note={{ content: markdown, title: "note" }} />
           </div>
         </div>
 
         <div className="left-side">
           <Preview markdown={markdown} />
-          <SavedNote notes={notes} loadNote={loadNote} />
         </div>
       </div>
     </main>

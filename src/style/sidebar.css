@@ -1,35 +1,47 @@
 .sidebar {
   width: 220px;
-  min-width: 220px;
-  background: #111318;
-  border-right: 1px solid #1f2128;
-  padding: 28px 16px;
+  background-color: #111;
+  color: #a78bfa;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  overflow-y: auto;
 }
 
 .sidebar h2 {
-  color: #f4f4f5;
-  font-size: 17px;
-  font-weight: 600;
-  padding-left: 4px;
+  margin-bottom: 20px;
+  font-size: 20px;
 }
 
 .new-note-btn {
-  padding: 10px 14px;
-  background: #a78bfa;
-  color: #1a0a2e;
+  background-color: #a78bfa;
+  color: #18181b;
+  padding: 10px;
   border: none;
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  transition: background 0.15s;
+  margin-bottom: 20px;
+  font-weight: bold;
 }
 
 .new-note-btn:hover {
-  background: #c4b5fd;
+  opacity: 0.9;
+}
+
+.sidebar-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-note {
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #1a1a1a;
+  transition: 0.2s;
+}
+
+.sidebar-note:hover {
+  background: #2a2a2a;
 }

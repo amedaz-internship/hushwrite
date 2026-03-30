@@ -2,21 +2,46 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import Markdown from "./components/Markdown";
 import { Toaster } from "react-hot-toast";
+import { getAllNotes } from "./js/db";
 import "./App.css";
 
 const App = () => {
   const [markdown, setMarkdown] = useState("");
   const [currentId, setCurrentId] = useState(null);
+  const [notes, setNotes] = useState([]);
+
+  const loadNotes = async () => {
+    const saved = await getAllNotes();
+    setNotes(saved);
+  };
+
+  useEffect(() => {
+    loadNotes();
+  }, []);
+
+  const loadNote = (note) => {
+    const event = new CustomEvent("loadNote", { detail: note });
+    window.dispatchEvent(event);
+  };
 
   return (
     <div className="app-container">
-      <Sidebar setMarkdown={setMarkdown} setCurrentId={setCurrentId} />
+      <Sidebar
+        setMarkdown={setMarkdown}
+        setCurrentId={setCurrentId}
+        notes={notes}
+        loadNote={loadNote}
+      />
+
       <Markdown
         markdown={markdown}
         setMarkdown={setMarkdown}
         currentId={currentId}
         setCurrentId={setCurrentId}
+        notes={notes}
+        setNotes={setNotes}
       />
+
       <Toaster
         position="top-right"
         toastOptions={{
