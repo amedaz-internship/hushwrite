@@ -1,69 +1,72 @@
 import { useState, useEffect, useRef } from "react";
-import "../style/PassphraseModal.css";
+import { Lock, KeyRound } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
   const [value, setValue] = useState("");
   const inputRef = useRef(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
   }, []);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
 
   const handleSubmit = () => {
     if (!value.trim()) return;
     onConfirm(value);
   };
 
-  const handleBackdrop = (e) => {
-    if (e.target === e.currentTarget) onCancel();
-  };
-
   const isEncrypt = mode === "encrypt";
+  const Icon = isEncrypt ? Lock : KeyRound;
 
   return (
-    <div className="passphrase-modal-backdrop" onClick={handleBackdrop}>
-      <div className="passphrase-modal-container">
-        <h2 className="passphrase-modal-title">
-          {isEncrypt ? " Encrypt Note" : "Decrypt Note"}
-        </h2>
-        <p className="passphrase-modal-description">
-          {isEncrypt
-            ? "Enter a passphrase to encrypt and save this note. New passphrase will overwrite"
-            : "Enter the passphrase used when this note was saved."}
-        </p>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <div className="flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15">
+            <Icon className="h-5 w-5 text-primary" />
+          </div>
+          <DialogHeader>
+            <DialogTitle className="text-zinc-50">
+              {isEncrypt ? "Encrypt note" : "Decrypt note"}
+            </DialogTitle>
+            <DialogDescription>
+              {isEncrypt
+                ? "Choose a passphrase to encrypt and save this note. A new passphrase will overwrite the previous one."
+                : "Enter the passphrase used when this note was saved."}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <input
+        <Input
           ref={inputRef}
           type="password"
           placeholder="Passphrase…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          className="passphrase-modal-input"
+          className="border-zinc-700 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-primary"
         />
 
-        <div className="passphrase-modal-actions">
-          <button onClick={onCancel} className="passphrase-modal-btn ghost">
+        <DialogFooter>
+          <Button variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!value.trim()}
-            className="passphrase-modal-btn primary"
-          >
-            {isEncrypt ? "Save" : "Unlock"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+          <Button onClick={handleSubmit} disabled={!value.trim()}>
+            {isEncrypt ? "Encrypt & Save" : "Unlock"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

@@ -20,7 +20,9 @@ import {
 } from "../js/crypto";
 import PassphraseModal from "./PassPhraseModal.jsx";
 import DeleteModal from "./DeleteModal.jsx";
-import "../style/markdown.css";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Save, Trash2, ImagePlus, FileText } from "lucide-react";
 
 const Markdown = ({
   selectedNote,
@@ -207,7 +209,7 @@ const Markdown = ({
   };
 
   return (
-    <main className="main-content">
+    <main className="scrollbar-thin flex h-screen flex-1 flex-col overflow-y-auto">
       {modal?.type === "passphrase" && (
         <PassphraseModal
           mode={modal.mode}
@@ -222,17 +224,22 @@ const Markdown = ({
         />
       )}
 
-      <div className="editor-preview">
-        <div className="editor">
-          <div className="note-title-container">
-            <input
-              type="text"
-              placeholder="Enter note title..."
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="note-title-input"
-            />
-          </div>
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/80 px-8 py-4 backdrop-blur">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <FileText className="h-4 w-4" />
+          <span>{currentId ? "Editing note" : "New note"}</span>
+        </div>
+      </header>
+
+      <div className="flex w-full flex-1 gap-8 p-8">
+        <div className="flex flex-[0_0_60%] flex-col gap-4">
+          <Input
+            type="text"
+            placeholder="Untitled note"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="h-12 border-0 border-b border-border bg-transparent px-1 text-2xl font-semibold tracking-tight shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
 
           <CKEditor
             editor={ClassicEditor}
@@ -267,7 +274,7 @@ const Markdown = ({
             }}
           />
 
-          <div className="editor-actions">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
             <input
               ref={fileInputRef}
               type="file"
@@ -275,23 +282,32 @@ const Markdown = ({
               hidden
               onChange={handleImageUpload}
             />
-            <button
-              className="save-btn"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => fileInputRef.current.click()}
             >
-              Attach Image
-            </button>
-            <button className="save-btn" onClick={onSave}>
-              Save
-            </button>
+              <ImagePlus className="mr-1.5 h-4 w-4" />
+              Image
+            </Button>
             <ExportNote note={{ content: markdown, title }} />
-            <button className="delete-btn" onClick={handleDelete}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDelete}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
               Delete
-            </button>
+            </Button>
+            <Button size="sm" onClick={onSave} className="shadow-sm">
+              <Save className="mr-1.5 h-4 w-4" />
+              Save
+            </Button>
           </div>
         </div>
 
-        <div className="left-side">
+        <div className="flex flex-[0_0_40%] flex-col gap-6">
           <Preview markdown={markdown} />
         </div>
       </div>

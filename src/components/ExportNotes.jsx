@@ -1,6 +1,7 @@
-import "../style/markdown.css";
 import html2pdf from "html2pdf.js";
 import TurndownService from "turndown";
+import { Button } from "@/components/ui/button";
+import { FileDown, FileText } from "lucide-react";
 
 const ExportNote = ({ note }) => {
   const exportAsMD = () => {
@@ -40,14 +41,16 @@ const ExportNote = ({ note }) => {
   };
 
   return (
-    <div style={{ display: "flex", gap: "10px" }}>
-      <button className="save-btn" onClick={exportAsMD}>
-        Export as .MD
-      </button>
-      <button className="save-btn" onClick={exportAsPDF}>
-        Export as PDF
-      </button>
-    </div>
+    <>
+      <Button variant="ghost" size="sm" onClick={exportAsMD}>
+        <FileText className="mr-1.5 h-4 w-4" />
+        .MD
+      </Button>
+      <Button variant="ghost" size="sm" onClick={exportAsPDF}>
+        <FileDown className="mr-1.5 h-4 w-4" />
+        PDF
+      </Button>
+    </>
   );
 };
 

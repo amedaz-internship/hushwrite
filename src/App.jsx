@@ -3,7 +3,6 @@ import Sidebar from "./components/Sidebar";
 import Markdown from "./components/Markdown";
 import { Toaster } from "react-hot-toast";
 import { getAllNotes } from "./js/db";
-import "./App.css";
 
 const App = () => {
   const [markdown, setMarkdown] = useState("");
@@ -21,12 +20,13 @@ const App = () => {
   }, []);
 
   return (
-    <div className="app-container">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar
         setMarkdown={setMarkdown}
         setCurrentId={setCurrentId}
         notes={notes}
         onSelectNote={setSelectedNote}
+        currentId={currentId}
       />
 
       <Markdown
