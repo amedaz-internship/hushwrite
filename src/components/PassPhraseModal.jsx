@@ -36,7 +36,7 @@ const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
         </h2>
         <p className="passphrase-modal-description">
           {isEncrypt
-            ? "Enter a passphrase to encrypt and save this note."
+            ? "Enter a passphrase to encrypt and save this note. New passphrase will overwrite"
             : "Enter the passphrase used when this note was saved."}
         </p>
 
