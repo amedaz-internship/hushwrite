@@ -28,6 +28,9 @@ const Sidebar = ({ setMarkdown, setCurrentId, notes, onSelectNote }) => {
           >
             <strong>{note.title || "Untitled Note"}</strong>
             <small>{new Date(note.createdAt).toLocaleDateString()}</small>
+            <small>
+              {new Date(note.updatedAt || note.createdAt).toLocaleDateString()}
+            </small>
           </div>
         ))}
       </div>

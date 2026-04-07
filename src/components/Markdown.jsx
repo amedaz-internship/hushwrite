@@ -22,7 +22,6 @@ const Markdown = ({
   setCurrentId,
   title,
   setTitle,
-  notes,
   setNotes,
 }) => {
   const editorRef = useRef(null);
@@ -88,6 +87,12 @@ const Markdown = ({
 
       const id = currentId || uuid4();
 
+      let existingNote;
+      if (currentId) {
+        const allNotes = await getAllNotes();
+        existingNote = allNotes.find((n) => n.id === currentId);
+      }
+
       const note = {
         id,
         title: title.trim(),
@@ -95,7 +100,10 @@ const Markdown = ({
         iv: Array.from(iv),
         salt: Array.from(salt),
         hash,
-        createdAt: new Date().toISOString(),
+        createdAt: currentId
+          ? existingNote?.createdAt || new Date().toISOString()
+          : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       await saveNote(note);
