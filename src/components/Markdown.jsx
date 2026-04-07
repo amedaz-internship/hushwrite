@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
-import { saveNote, getAllNotes } from "../js/db";
+import { saveNote, getAllNotes, deleteNote } from "../js/db";
 import { v4 as uuid4 } from "uuid";
 import ExportNote from "./ExportNotes.jsx";
 import Preview from "./Preview.jsx";
@@ -110,6 +110,34 @@ const Markdown = ({
     }
   };
 
+  const handleDelete = async () => {
+    if (!currentId) {
+      toast.error("No note selected!");
+      return;
+    }
+
+    if (!window.confirm("Delete this note?")) return;
+
+    try {
+      await deleteNote(currentId);
+
+      setMarkdown("");
+      setTitle("");
+      setCurrentId(null);
+
+      if (editorRef.current) {
+        editorRef.current.setData("");
+      }
+
+      const updated = await getAllNotes();
+      setNotes(updated);
+
+      toast.success("Note deleted!");
+    } catch (err) {
+      toast.error("Delete failed");
+    }
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -190,7 +218,11 @@ const Markdown = ({
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
+
             <ExportNote note={{ content: markdown, title }} />
+            <button className="delete-btn" onClick={handleDelete}>
+              Delete
+            </button>
           </div>
         </div>
 

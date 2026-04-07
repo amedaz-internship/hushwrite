@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import Markdown from "./components/Markdown";
 import { Toaster } from "react-hot-toast";
-import { getAllNotes } from "./js/db";
+import { getAllNotes, deleteNote } from "./js/db";
 import "./App.css";
 
 const App = () => {
