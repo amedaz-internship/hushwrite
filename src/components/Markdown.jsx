@@ -15,6 +15,7 @@ import {
 import "../style/markdown.css";
 
 const Markdown = ({
+  selectedNote,
   markdown,
   setMarkdown,
   currentId,
@@ -27,31 +28,30 @@ const Markdown = ({
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Reset title for new note
   useEffect(() => {
     if (!currentId) setTitle("");
   }, [currentId, setTitle]);
 
-  // Listen for loadNote event from Sidebar
   useEffect(() => {
-    const handler = async (e) => {
-      const note = e.detail;
+    const loadSelectedNote = async () => {
+      if (!selectedNote) return;
+
       try {
         const pw = prompt("Enter passphrase to decrypt note:");
         if (!pw) return;
 
-        const key = await deriveKey(pw, new Uint8Array(note.salt));
+        const key = await deriveKey(pw, new Uint8Array(selectedNote.salt));
 
         const decrypted = await decryptContent(
-          new Uint8Array(note.ciphertext),
+          new Uint8Array(selectedNote.ciphertext),
           key,
-          new Uint8Array(note.iv),
-          note.hash,
+          new Uint8Array(selectedNote.iv),
+          selectedNote.hash,
         );
 
         setMarkdown(decrypted);
-        setCurrentId(note.id);
-        setTitle(note.title || "");
+        setCurrentId(selectedNote.id);
+        setTitle(selectedNote.title || "");
 
         if (editorRef.current) {
           editorRef.current.setData(decrypted);
@@ -63,9 +63,8 @@ const Markdown = ({
       }
     };
 
-    window.addEventListener("loadNote", handler);
-    return () => window.removeEventListener("loadNote", handler);
-  }, [setMarkdown, setCurrentId, setTitle]);
+    loadSelectedNote();
+  }, [selectedNote]);
 
   const onSave = async () => {
     if (!markdown.trim()) {
@@ -102,7 +101,6 @@ const Markdown = ({
       await saveNote(note);
       setCurrentId(id);
 
-      // reload notes for sidebar
       const saved = await getAllNotes();
       setNotes(saved);
 
@@ -132,7 +130,6 @@ const Markdown = ({
     <main className="main-content">
       <div className="editor-preview">
         <div className="editor">
-          {/* Note title input */}
           <div className="note-title-container">
             <input
               type="text"

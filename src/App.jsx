@@ -10,8 +10,7 @@ const App = () => {
   const [currentId, setCurrentId] = useState(null);
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState([]);
-
-  // Load all notes on start
+  const [selectedNote, setSelectedNote] = useState(null);
   const loadNotes = async () => {
     const saved = await getAllNotes();
     setNotes(saved);
@@ -21,22 +20,17 @@ const App = () => {
     loadNotes();
   }, []);
 
-  // Function to load a note from sidebar
-  const loadNote = (note) => {
-    const event = new CustomEvent("loadNote", { detail: note });
-    window.dispatchEvent(event);
-  };
-
   return (
     <div className="app-container">
       <Sidebar
         setMarkdown={setMarkdown}
         setCurrentId={setCurrentId}
         notes={notes}
-        loadNote={loadNote}
+        onSelectNote={setSelectedNote}
       />
 
       <Markdown
+        selectedNote={selectedNote}
         markdown={markdown}
         setMarkdown={setMarkdown}
         currentId={currentId}
@@ -47,25 +41,7 @@ const App = () => {
         setNotes={setNotes}
       />
 
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          style: {
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 13,
-            borderRadius: 10,
-            boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
-          },
-          success: {
-            style: { background: "#a78bfa", color: "#18181b" },
-            iconTheme: { primary: "#a78bfa", secondary: "#18181b" },
-          },
-          error: {
-            style: { background: "#000000", color: "#a78bfa" },
-            iconTheme: { primary: "#000000", secondary: "#a78bfa" },
-          },
-        }}
-      />
+      <Toaster position="top-right" />
     </div>
   );
 };
