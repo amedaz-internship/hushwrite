@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+# Ignore PWA build files
+dev-dist/sw.js
+dev-dist/workbox-*.js
 
 # Editor directories and files
 .vscode/*
