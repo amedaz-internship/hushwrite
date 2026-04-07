@@ -1,0 +1,212 @@
+
+.main-content {
+  flex: 1;
+  display: flex;
+  gap: 24px;
+  padding: 24px;
+  overflow-y: auto; 
+}
+
+.editor-preview {
+  display: flex;
+  gap: 24px;
+  width: 100%;
+}
+
+.editor {
+  flex: 0 0 60%; 
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 12px;
+  align-self: flex-end;
+}
+
+.ck-editor__editable_inline {
+  min-height: 300px;
+  min-width: 300px; 
+}
+
+.save-btn {
+  padding: 10px 20px;
+  background: #18181b;
+  color: #fafafa;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.save-btn:hover {
+  background: #3f3f46;
+}
+
+.delete-btn {
+  padding: 10px 20px;
+ background-color: #a78bfa;
+  color: #18181b;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.delete-btn:hover {
+   opacity: 0.9;
+  }
+
+
+.left-side {
+  flex: 0 0 40%;
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notes-list h3 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #57575a;
+  text-transform: uppercase;
+}
+
+.notes-cards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.note-card {
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  padding: 12px 14px;
+  border-radius: 10px;
+  width: 180px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.note-card:hover {
+  border-color: #a78bfa;
+  box-shadow: 0 4px 12px rgba(167, 139, 250, 0.15);
+}
+
+.note-card p {
+  font-size: 13px;
+  color: #3f3f46;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+}
+
+.note-card small {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview h3 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7d7d80;
+  text-transform: uppercase;
+}
+
+.markdown-preview {
+  flex: 1;
+  padding: 16px 20px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fff;
+  overflow-y: auto; 
+  font-size: 14px;
+  line-height: 1.8;
+  color: #27272a;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  color: #18181b;
+}
+
+.markdown-preview h1 { font-size: 22px; }
+.markdown-preview h2 { font-size: 18px; }
+.markdown-preview h3 { font-size: 15px; }
+
+.markdown-preview p {
+  margin-bottom: 0.8em;
+}
+
+.markdown-preview code {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  background: #f4f4f5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #7c3aed;
+}
+
+.markdown-preview pre {
+  background: #18181b;
+  color: #e4e4e7;
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.markdown-preview blockquote {
+  border-left: 3px solid #a78bfa;
+  padding: 2px 0 2px 14px;
+  margin: 0.8em 0;
+  color: #71717a;
+  font-style: italic;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  padding-left: 1.4em;
+  margin-bottom: 0.8em;
+}
+
+.markdown-preview a {
+  color: #7c3aed;
+  text-decoration: underline;
+}
