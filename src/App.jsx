@@ -44,19 +44,19 @@ const App = () => {
       <Toaster
         position="top-right"
         toastOptions={{
-          style: {
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 13,
-            borderRadius: 10,
-            boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
-          },
+          className:
+            "!bg-popover !text-popover-foreground !border !border-border !rounded-lg !shadow-lg !text-sm",
           success: {
-            style: { background: "#a78bfa", color: "#18181b" },
-            iconTheme: { primary: "#a78bfa", secondary: "#18181b" },
+            iconTheme: {
+              primary: "hsl(var(--primary))",
+              secondary: "hsl(var(--popover))",
+            },
           },
           error: {
-            style: { background: "#000000", color: "#a78bfa" },
-            iconTheme: { primary: "#000000", secondary: "#a78bfa" },
+            iconTheme: {
+              primary: "hsl(var(--destructive))",
+              secondary: "hsl(var(--popover))",
+            },
           },
         }}
       />

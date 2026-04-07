@@ -36,7 +36,7 @@ const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
             <Icon className="h-5 w-5 text-primary" />
           </div>
           <DialogHeader>
-            <DialogTitle className="text-zinc-50">
+            <DialogTitle>
               {isEncrypt ? "Encrypt note" : "Decrypt note"}
             </DialogTitle>
             <DialogDescription>
@@ -54,7 +54,7 @@ const PassphraseModal = ({ mode, onConfirm, onCancel }) => {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          className="border-zinc-700 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-primary"
+          className="bg-background"
         />
 
         <DialogFooter>

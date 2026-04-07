@@ -1,3 +1,14 @@
+// AES-256-GCM with PBKDF2-HMAC-SHA256 key derivation.
+//
+// Notes for future-me:
+// - GCM is an authenticated cipher: any tampering of ciphertext, IV, or AAD
+//   makes `crypto.subtle.decrypt` throw automatically. We do NOT need a separate
+//   plaintext hash for tamper detection (and storing one would leak a known-
+//   plaintext oracle).
+// - Iteration count follows current OWASP guidance for PBKDF2-SHA256.
+// - Derived key is non-extractable so JS can't read its raw bytes.
+
+const PBKDF2_ITERATIONS = 600_000;
 
 export const generateSalt = (length = 16) => {
   return crypto.getRandomValues(new Uint8Array(length));
@@ -10,20 +21,20 @@ export const deriveKey = async (passphrase, salt) => {
     enc.encode(passphrase),
     "PBKDF2",
     false,
-    ["deriveKey"]
+    ["deriveKey"],
   );
 
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt,
-      iterations: 100000,
+      iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
-    ["encrypt", "decrypt"]
+    ["encrypt", "decrypt"],
   );
 };
 
@@ -32,50 +43,30 @@ export const encryptContent = async (content, key) => {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = enc.encode(content);
 
-  const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
-  const hash = new Uint8Array(hashBuffer);
-
   const ciphertextBuffer = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    encoded
+    encoded,
   );
 
   return {
     ciphertext: new Uint8Array(ciphertextBuffer),
     iv,
-    hash,
   };
 };
 
-const compareHashes = (a, b) => {
-  if (a.length !== b.length) return false;
-  return a.every((val, i) => val === b[i]);
-};
-
-export const decryptContent = async (ciphertext, key, iv, storedHash) => {
+export const decryptContent = async (ciphertext, key, iv) => {
   const dec = new TextDecoder();
   try {
     const decryptedBuffer = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
       key,
-      ciphertext
+      ciphertext,
     );
-    const text = dec.decode(decryptedBuffer);
-
-    const enc = new TextEncoder();
-    const newHashBuffer = await crypto.subtle.digest(
-      "SHA-256",
-      enc.encode(text)
-    );
-    const newHash = new Uint8Array(newHashBuffer);
-
-    if (!compareHashes(newHash, storedHash)) {
-      throw new Error("Tampered content!");
-    }
-
-    return text;
+    return dec.decode(decryptedBuffer);
   } catch (err) {
-    throw new Error("⚠️ Note corrupted, tampered, or wrong password.");
+    // Log the real cause for debugging; surface a friendly message to callers.
+    console.error("[decrypt] failed:", err);
+    throw new Error("Note corrupted, tampered, or wrong passphrase.");
   }
 };

@@ -21,9 +21,7 @@ const DeleteModal = ({ onConfirm, onCancel }) => {
             <AlertTriangle className="h-5 w-5 text-destructive" />
           </div>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-50">
-              Delete this note?
-            </AlertDialogTitle>
+            <AlertDialogTitle>Delete this note?</AlertDialogTitle>
             <AlertDialogDescription>
               This action is permanent and cannot be undone.
             </AlertDialogDescription>

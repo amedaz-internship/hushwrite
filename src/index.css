@@ -8,8 +8,8 @@
     --foreground: 240 10% 10%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 10%;
-    --popover: 240 10% 12%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
     --primary: 258 90% 66%;
     --primary-foreground: 0 0% 100%;
     --secondary: 240 5% 96%;
@@ -24,6 +24,42 @@
     --input: 240 6% 90%;
     --ring: 258 90% 66%;
     --radius: 0.75rem;
+
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 240 10% 10%;
+    --sidebar-border: 240 6% 90%;
+    --sidebar-muted: 240 4% 46%;
+    --sidebar-item: 240 5% 96%;
+    --sidebar-item-hover: 240 5% 92%;
+  }
+
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 96%;
+    --card: 240 10% 9%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 10% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 258 90% 70%;
+    --primary-foreground: 240 10% 6%;
+    --secondary: 240 6% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 14%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 258 60% 18%;
+    --accent-foreground: 258 90% 90%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 6% 18%;
+    --input: 240 6% 18%;
+    --ring: 258 90% 70%;
+
+    --sidebar: 240 10% 4%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-border: 240 6% 14%;
+    --sidebar-muted: 240 5% 50%;
+    --sidebar-item: 240 6% 10%;
+    --sidebar-item-hover: 240 6% 14%;
   }
 }
 
@@ -41,10 +77,14 @@
     font-family: "Inter", "Segoe UI", sans-serif;
     background-image: radial-gradient(
         circle at 0% 0%,
-        hsl(258 90% 66% / 0.06),
+        hsl(var(--primary) / 0.06),
         transparent 40%
       ),
-      radial-gradient(circle at 100% 100%, hsl(258 90% 66% / 0.05), transparent 45%);
+      radial-gradient(
+        circle at 100% 100%,
+        hsl(var(--primary) / 0.05),
+        transparent 45%
+      );
   }
   ::selection {
     background: hsl(var(--primary) / 0.25);
@@ -65,7 +105,7 @@
   }
 }
 
-/* CKEditor visual fit */
+/* CKEditor visual fit — adapts to theme via CSS variables */
 .ck-editor__editable_inline {
   min-height: 360px;
   font-family: "Inter", sans-serif;
@@ -81,12 +121,40 @@
   border: none !important;
   border-bottom: 1px solid hsl(var(--border)) !important;
   background: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 .ck.ck-content {
   border: none !important;
   background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 .ck.ck-editor__editable.ck-focused {
   box-shadow: none !important;
   border: none !important;
+}
+.ck-editor,
+.ck.ck-reset_all {
+  --ck-color-base-border: hsl(var(--border));
+  --ck-color-base-background: hsl(var(--card));
+  --ck-color-base-foreground: hsl(var(--foreground));
+  --ck-color-toolbar-background: hsl(var(--muted));
+  --ck-color-toolbar-border: hsl(var(--border));
+  --ck-color-button-default-background: transparent;
+  --ck-color-button-default-hover-background: hsl(var(--accent));
+  --ck-color-button-default-active-background: hsl(var(--accent));
+  --ck-color-button-on-background: hsl(var(--accent));
+  --ck-color-button-on-hover-background: hsl(var(--accent));
+  --ck-color-dropdown-panel-background: hsl(var(--popover));
+  --ck-color-dropdown-panel-border: hsl(var(--border));
+  --ck-color-list-background: hsl(var(--popover));
+  --ck-color-list-button-hover-background: hsl(var(--accent));
+  --ck-color-input-background: hsl(var(--background));
+  --ck-color-input-border: hsl(var(--border));
+  --ck-color-input-text: hsl(var(--foreground));
+  --ck-color-text: hsl(var(--foreground));
+}
+.dark .ck.ck-button,
+.dark .ck.ck-toolbar .ck-button .ck-button__label,
+.dark .ck.ck-toolbar .ck-icon {
+  color: hsl(var(--foreground)) !important;
 }

@@ -5,9 +5,11 @@ import toast from "react-hot-toast";
 import {
   saveNote,
   getAllNotes,
+  getNote,
   deleteNote,
   saveImage,
   getImage,
+  deleteImage,
 } from "../js/db";
 import { v4 as uuid4 } from "uuid";
 import ExportNote from "./ExportNotes.jsx";
@@ -23,6 +25,27 @@ import DeleteModal from "./DeleteModal.jsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Save, Trash2, ImagePlus, FileText } from "lucide-react";
+
+// Pull image IDs out of an HTML string by reading every <img data-img-id="...">.
+const extractImageIds = (htmlContent) => {
+  const div = document.createElement("div");
+  div.innerHTML = htmlContent;
+  return Array.from(div.querySelectorAll("img[data-img-id]")).map(
+    (img) => img.dataset.imgId,
+  );
+};
+
+// Strip data: URLs from <img> tags before encryption — the actual blob is
+// stored in the IndexedDB images store and re-hydrated on load. Without this,
+// every save would store each image twice (and 3-4× its raw size, base64).
+const stripImageSources = (htmlContent) => {
+  const div = document.createElement("div");
+  div.innerHTML = htmlContent;
+  for (const img of div.querySelectorAll("img[data-img-id]")) {
+    img.removeAttribute("src");
+  }
+  return div.innerHTML;
+};
 
 const Markdown = ({
   selectedNote,
@@ -43,21 +66,26 @@ const Markdown = ({
     if (!currentId) setTitle("");
   }, [currentId, setTitle]);
 
-  const askPassphrase = useCallback(
-    (mode) =>
-      new Promise((resolve, reject) =>
-        setModal({ type: "passphrase", mode, resolve, reject }),
-      ),
-    [],
-  );
+  // Open a modal and return a Promise that settles when the user confirms or
+  // cancels. If a previous modal is still open, reject its Promise first so
+  // its caller doesn't hang forever (H5).
+  const askPassphrase = useCallback((mode) => {
+    return new Promise((resolve, reject) => {
+      setModal((prev) => {
+        prev?.reject?.(new Error("superseded"));
+        return { type: "passphrase", mode, resolve, reject };
+      });
+    });
+  }, []);
 
-  const askDeleteConfirm = useCallback(
-    () =>
-      new Promise((resolve, reject) =>
-        setModal({ type: "delete", resolve, reject }),
-      ),
-    [],
-  );
+  const askDeleteConfirm = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      setModal((prev) => {
+        prev?.reject?.(new Error("superseded"));
+        return { type: "delete", resolve, reject };
+      });
+    });
+  }, []);
 
   const closeModal = () => setModal(null);
 
@@ -77,6 +105,7 @@ const Markdown = ({
     reject(new Error("cancelled"));
   };
 
+  // Re-hydrate <img> data: URLs from the images store after decryption.
   const renderImages = async (htmlContent) => {
     const div = document.createElement("div");
     div.innerHTML = htmlContent;
@@ -106,7 +135,6 @@ const Markdown = ({
           new Uint8Array(selectedNote.ciphertext),
           key,
           new Uint8Array(selectedNote.iv),
-          selectedNote.hash,
         );
         const contentWithImages = await renderImages(decrypted);
         setMarkdown(contentWithImages);
@@ -115,11 +143,13 @@ const Markdown = ({
         if (editorRef.current) editorRef.current.setData(contentWithImages);
         toast.success("Note loaded!");
       } catch (err) {
-        if (err.message !== "cancelled") toast.error(err.message);
+        if (err.message !== "cancelled" && err.message !== "superseded") {
+          toast.error(err.message);
+        }
       }
     };
     loadSelectedNote();
-  }, [selectedNote]);
+  }, [selectedNote, askPassphrase, setMarkdown, setCurrentId, setTitle]);
 
   const onSave = async () => {
     if (!markdown.trim()) {
@@ -135,12 +165,20 @@ const Markdown = ({
       const pw = await askPassphrase("encrypt");
       const salt = generateSalt();
       const key = await deriveKey(pw, salt);
-      const { ciphertext, iv, hash } = await encryptContent(markdown, key);
+      const stripped = stripImageSources(markdown);
+      const { ciphertext, iv } = await encryptContent(stripped, key);
 
-      let existingNote;
-      if (currentId) {
-        const allNotes = await getAllNotes();
-        existingNote = allNotes.find((n) => n.id === currentId);
+      const imageIds = extractImageIds(markdown);
+
+      const existingNote = currentId ? await getNote(currentId) : null;
+
+      // Garbage-collect images that were removed from the note since last save.
+      if (existingNote?.imageIds?.length) {
+        const stillReferenced = new Set(imageIds);
+        const removed = existingNote.imageIds.filter(
+          (id) => !stillReferenced.has(id),
+        );
+        await Promise.all(removed.map((id) => deleteImage(id)));
       }
 
       const id = currentId || uuid4();
@@ -150,10 +188,8 @@ const Markdown = ({
         ciphertext: Array.from(ciphertext),
         iv: Array.from(iv),
         salt: Array.from(salt),
-        hash,
-        createdAt: currentId
-          ? existingNote?.createdAt || new Date().toISOString()
-          : new Date().toISOString(),
+        imageIds,
+        createdAt: existingNote?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
 
@@ -161,7 +197,9 @@ const Markdown = ({
       setNotes(await getAllNotes());
       toast.success("Encrypted & saved!");
     } catch (err) {
-      if (err.message !== "cancelled") toast.error(err.message);
+      if (err.message !== "cancelled" && err.message !== "superseded") {
+        toast.error(err.message);
+      }
     }
   };
 
@@ -172,6 +210,11 @@ const Markdown = ({
     }
     try {
       await askDeleteConfirm();
+      const note = await getNote(currentId);
+      // Drop the note's images from IndexedDB so they don't pile up forever.
+      if (note?.imageIds?.length) {
+        await Promise.all(note.imageIds.map((id) => deleteImage(id)));
+      }
       await deleteNote(currentId);
       setMarkdown("");
       setTitle("");
@@ -180,7 +223,9 @@ const Markdown = ({
       setNotes(await getAllNotes());
       toast.success("Note deleted!");
     } catch (err) {
-      if (err.message !== "cancelled") toast.error("Delete failed");
+      if (err.message !== "cancelled" && err.message !== "superseded") {
+        toast.error("Delete failed");
+      }
     }
   };
 
@@ -245,7 +290,7 @@ const Markdown = ({
             editor={ClassicEditor}
             data={markdown}
             onReady={(editor) => (editorRef.current = editor)}
-            onChange={(event, editor) => setMarkdown(editor.getData())}
+            onChange={(_event, editor) => setMarkdown(editor.getData())}
             config={{
               toolbar: [
                 "heading",
@@ -258,18 +303,6 @@ const Markdown = ({
                 "blockQuote",
                 "undo",
                 "redo",
-              ],
-              removePlugins: [
-                "CKFinder",
-                "CKFinderUploadAdapter",
-                "ImageToolbar",
-                "ImageCaption",
-                "ImageStyle",
-                "ImageUpload",
-                "ImageResizeEditing",
-                "ImageResizeHandles",
-                "MediaEmbed",
-                "EasyImage",
               ],
             }}
           />

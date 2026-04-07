@@ -30,6 +30,11 @@ export const getAllNotes = async () => {
   return db.getAll(NOTES_STORE);
 };
 
+export const getNote = async (id) => {
+  const db = await initDB();
+  return db.get(NOTES_STORE, id);
+};
+
 export const deleteNote = async (id) => {
   const db = await initDB();
   await db.delete(NOTES_STORE, id);
