@@ -34,3 +34,18 @@ export const deleteNote = async (id) => {
   const db = await initDB();
   await db.delete(NOTES_STORE, id);
 };
+
+export const saveImage = async (image) => {
+  const db = await initDB();
+  await db.put(IMAGES_STORE, image); 
+};
+
+export const getImage = async (id) => {
+  const db = await initDB();
+  return db.get(IMAGES_STORE, id);
+};
+
+export const deleteImage = async (id) => {
+  const db = await initDB();
+  await db.delete(IMAGES_STORE, id);
+};

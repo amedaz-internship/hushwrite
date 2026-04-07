@@ -2,7 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
-import { saveNote, getAllNotes, deleteNote } from "../js/db";
+import {
+  saveNote,
+  getAllNotes,
+  deleteNote,
+  saveImage,
+  getImage,
+} from "../js/db";
 import { v4 as uuid4 } from "uuid";
 import ExportNote from "./ExportNotes.jsx";
 import Preview from "./Preview.jsx";
@@ -31,6 +37,29 @@ const Markdown = ({
     if (!currentId) setTitle("");
   }, [currentId, setTitle]);
 
+  const renderImages = async (htmlContent) => {
+    const div = document.createElement("div");
+    div.innerHTML = htmlContent;
+
+    const imgs = div.querySelectorAll("img[data-img-id]");
+    for (const img of imgs) {
+      const id = img.dataset.imgId;
+      const imageEntry = await getImage(id);
+      if (imageEntry) {
+        const reader = new FileReader();
+        await new Promise((resolve) => {
+          reader.onload = () => {
+            img.src = reader.result;
+            resolve();
+          };
+          reader.readAsDataURL(imageEntry.blob);
+        });
+      }
+    }
+
+    return div.innerHTML;
+  };
+
   useEffect(() => {
     const loadSelectedNote = async () => {
       if (!selectedNote) return;
@@ -48,12 +77,14 @@ const Markdown = ({
           selectedNote.hash,
         );
 
-        setMarkdown(decrypted);
+        const contentWithImages = await renderImages(decrypted);
+
+        setMarkdown(contentWithImages);
         setCurrentId(selectedNote.id);
         setTitle(selectedNote.title || "");
 
         if (editorRef.current) {
-          editorRef.current.setData(decrypted);
+          editorRef.current.setData(contentWithImages);
         }
 
         toast.success("Note loaded!");
@@ -85,14 +116,13 @@ const Markdown = ({
 
       const { ciphertext, iv, hash } = await encryptContent(markdown, key);
 
-      const id = currentId || uuid4();
-
       let existingNote;
       if (currentId) {
         const allNotes = await getAllNotes();
         existingNote = allNotes.find((n) => n.id === currentId);
       }
 
+      const id = currentId || uuid4();
       const note = {
         id,
         title: title.trim(),
@@ -146,20 +176,34 @@ const Markdown = ({
     }
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = "";
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      const html = `<figure class="image"><img src="${dataUrl}" style="max-width:100%;" /></figure>`;
+    try {
+      const id = uuid4();
+
+      await saveImage({ id, blob: file });
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+
+      const html = `<figure class="image"><img src="${dataUrl}" data-img-id="${id}" style="max-width:100%;" /></figure>`;
+
       if (editorRef.current) {
         editorRef.current.setData(editorRef.current.getData() + html);
         setMarkdown(editorRef.current.getData());
       }
-    };
-    reader.readAsDataURL(file);
+
+      toast.success("Image attached!");
+    } catch (err) {
+      toast.error("Failed to attach image: " + err.message);
+    }
   };
 
   return (
