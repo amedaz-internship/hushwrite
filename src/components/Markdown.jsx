@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import toast from "react-hot-toast";
@@ -18,6 +18,8 @@ import {
   decryptContent,
   generateSalt,
 } from "../js/crypto";
+import PassphraseModal from "./PassPhraseModal.jsx";
+import DeleteModal from "./DeleteModal.jsx";
 import "../style/markdown.css";
 
 const Markdown = ({
@@ -33,21 +35,54 @@ const Markdown = ({
   const editorRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const [modal, setModal] = useState(null);
+
   useEffect(() => {
     if (!currentId) setTitle("");
   }, [currentId, setTitle]);
 
+  const askPassphrase = useCallback(
+    (mode) =>
+      new Promise((resolve, reject) =>
+        setModal({ type: "passphrase", mode, resolve, reject }),
+      ),
+    [],
+  );
+
+  const askDeleteConfirm = useCallback(
+    () =>
+      new Promise((resolve, reject) =>
+        setModal({ type: "delete", resolve, reject }),
+      ),
+    [],
+  );
+
+  const closeModal = () => setModal(null);
+
+  const handlePassphraseConfirm = (pw) => {
+    const { resolve } = modal;
+    closeModal();
+    resolve(pw);
+  };
+  const handleDeleteConfirm = () => {
+    const { resolve } = modal;
+    closeModal();
+    resolve(true);
+  };
+  const handleModalCancel = () => {
+    const { reject } = modal;
+    closeModal();
+    reject(new Error("cancelled"));
+  };
+
   const renderImages = async (htmlContent) => {
     const div = document.createElement("div");
     div.innerHTML = htmlContent;
-
-    const imgs = div.querySelectorAll("img[data-img-id]");
-    for (const img of imgs) {
-      const id = img.dataset.imgId;
-      const imageEntry = await getImage(id);
+    for (const img of div.querySelectorAll("img[data-img-id]")) {
+      const imageEntry = await getImage(img.dataset.imgId);
       if (imageEntry) {
-        const reader = new FileReader();
         await new Promise((resolve) => {
+          const reader = new FileReader();
           reader.onload = () => {
             img.src = reader.result;
             resolve();
@@ -56,43 +91,31 @@ const Markdown = ({
         });
       }
     }
-
     return div.innerHTML;
   };
 
   useEffect(() => {
     const loadSelectedNote = async () => {
       if (!selectedNote) return;
-
       try {
-        const pw = prompt("Enter passphrase to decrypt note:");
-        if (!pw) return;
-
+        const pw = await askPassphrase("decrypt");
         const key = await deriveKey(pw, new Uint8Array(selectedNote.salt));
-
         const decrypted = await decryptContent(
           new Uint8Array(selectedNote.ciphertext),
           key,
           new Uint8Array(selectedNote.iv),
           selectedNote.hash,
         );
-
         const contentWithImages = await renderImages(decrypted);
-
         setMarkdown(contentWithImages);
         setCurrentId(selectedNote.id);
         setTitle(selectedNote.title || "");
-
-        if (editorRef.current) {
-          editorRef.current.setData(contentWithImages);
-        }
-
+        if (editorRef.current) editorRef.current.setData(contentWithImages);
         toast.success("Note loaded!");
       } catch (err) {
-        toast.error(err.message);
+        if (err.message !== "cancelled") toast.error(err.message);
       }
     };
-
     loadSelectedNote();
   }, [selectedNote]);
 
@@ -101,19 +124,15 @@ const Markdown = ({
       toast.error("Empty note!");
       return;
     }
-
     if (!title.trim()) {
       toast.error("Please enter a note title!");
       return;
     }
 
     try {
-      const pw = prompt("Enter passphrase:");
-      if (!pw) return;
-
+      const pw = await askPassphrase("encrypt");
       const salt = generateSalt();
       const key = await deriveKey(pw, salt);
-
       const { ciphertext, iv, hash } = await encryptContent(markdown, key);
 
       let existingNote;
@@ -123,7 +142,7 @@ const Markdown = ({
       }
 
       const id = currentId || uuid4();
-      const note = {
+      await saveNote({
         id,
         title: title.trim(),
         ciphertext: Array.from(ciphertext),
@@ -134,17 +153,13 @@ const Markdown = ({
           ? existingNote?.createdAt || new Date().toISOString()
           : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      };
+      });
 
-      await saveNote(note);
       setCurrentId(id);
-
-      const saved = await getAllNotes();
-      setNotes(saved);
-
+      setNotes(await getAllNotes());
       toast.success("Encrypted & saved!");
     } catch (err) {
-      toast.error(err.message);
+      if (err.message !== "cancelled") toast.error(err.message);
     }
   };
 
@@ -153,26 +168,17 @@ const Markdown = ({
       toast.error("No note selected!");
       return;
     }
-
-    if (!window.confirm("Delete this note?")) return;
-
     try {
+      await askDeleteConfirm();
       await deleteNote(currentId);
-
       setMarkdown("");
       setTitle("");
       setCurrentId(null);
-
-      if (editorRef.current) {
-        editorRef.current.setData("");
-      }
-
-      const updated = await getAllNotes();
-      setNotes(updated);
-
+      if (editorRef.current) editorRef.current.setData("");
+      setNotes(await getAllNotes());
       toast.success("Note deleted!");
     } catch (err) {
-      toast.error("Delete failed");
+      if (err.message !== "cancelled") toast.error("Delete failed");
     }
   };
 
@@ -180,26 +186,20 @@ const Markdown = ({
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = "";
-
     try {
       const id = uuid4();
-
       await saveImage({ id, blob: file });
-
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
         reader.onerror = () => reject(new Error("Failed to read image"));
         reader.readAsDataURL(file);
       });
-
       const html = `<figure class="image"><img src="${dataUrl}" data-img-id="${id}" style="max-width:100%;" /></figure>`;
-
       if (editorRef.current) {
         editorRef.current.setData(editorRef.current.getData() + html);
         setMarkdown(editorRef.current.getData());
       }
-
       toast.success("Image attached!");
     } catch (err) {
       toast.error("Failed to attach image: " + err.message);
@@ -208,6 +208,20 @@ const Markdown = ({
 
   return (
     <main className="main-content">
+      {modal?.type === "passphrase" && (
+        <PassphraseModal
+          mode={modal.mode}
+          onConfirm={handlePassphraseConfirm}
+          onCancel={handleModalCancel}
+        />
+      )}
+      {modal?.type === "delete" && (
+        <DeleteModal
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleModalCancel}
+        />
+      )}
+
       <div className="editor-preview">
         <div className="editor">
           <div className="note-title-container">
@@ -270,7 +284,6 @@ const Markdown = ({
             <button className="save-btn" onClick={onSave}>
               Save
             </button>
-
             <ExportNote note={{ content: markdown, title }} />
             <button className="delete-btn" onClick={handleDelete}>
               Delete

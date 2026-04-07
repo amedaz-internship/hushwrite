@@ -1,0 +1,80 @@
+
+.passphrase-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modal-fade-in 0.15s ease;
+}
+
+.passphrase-modal-container {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  padding: 28px 32px;
+  width: 360px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: modal-slide-up 0.18s ease;
+}
+
+.passphrase-modal-title {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.passphrase-modal-description {
+  margin: 0 0 18px;
+  font-size: 0.83rem;
+  color: #6c7086;
+}
+
+.passphrase-modal-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #45475a;
+  background: #181825;
+  color: #a78bfa;
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+  margin-bottom: 20px;
+  transition: border-color 0.15s;
+}
+
+.passphrase-modal-input:focus {
+  border-color: #a78bfa;
+}
+
+.passphrase-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.passphrase-modal-btn {
+  padding: 8px 18px;
+  border-radius: 7px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.passphrase-modal-btn.primary {
+  background: #a78bfa;
+  color: #1e1e2e;
+}
+
+.passphrase-modal-btn.ghost {
+  background: #313244;
+  color: #a78bfa;
+}
+
