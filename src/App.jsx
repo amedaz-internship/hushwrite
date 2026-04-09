@@ -27,6 +27,7 @@ const App = () => {
         notes={notes}
         onSelectNote={setSelectedNote}
         currentId={currentId}
+        currentTitle={title}
       />
 
       <Markdown

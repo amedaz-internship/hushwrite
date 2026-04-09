@@ -10,6 +10,7 @@ const Sidebar = ({
   notes,
   onSelectNote,
   currentId,
+  currentTitle,
 }) => {
   const { theme, toggleTheme } = useTheme();
 
@@ -72,6 +73,14 @@ const Sidebar = ({
 
         {notes.map((note) => {
           const isActive = note.id === currentId;
+          // Display rules for the encrypted-title world:
+          //   - Active note → use the in-memory plaintext title from the editor.
+          //   - Legacy note (still has plaintext `title` field) → show it.
+          //   - Otherwise → generic "Encrypted note" placeholder; the user
+          //     identifies it by date until they unlock it.
+          const displayTitle = isActive
+            ? currentTitle || "Untitled note"
+            : note.title || "Encrypted note";
           return (
             <button
               key={note.id}
@@ -98,7 +107,7 @@ const Sidebar = ({
                       : "text-sidebar-foreground/90",
                   )}
                 >
-                  {note.title || "Untitled Note"}
+                  {displayTitle}
                 </span>
               </div>
               <span className="text-[10px] text-sidebar-muted">
