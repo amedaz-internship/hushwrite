@@ -1,42 +1,10 @@
-import DOMPurify from "dompurify";
+import MDEditor from "@uiw/react-md-editor";
 import { Eye } from "lucide-react";
-
-// Explicit allow-list — only the tags/attributes our editor actually emits.
-// Tightening this avoids surprise XSS surface if a malicious .hwrite import
-// ever reaches the preview pane.
-const SANITIZE_CONFIG = {
-  ALLOWED_TAGS: [
-    "p",
-    "br",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "strong",
-    "em",
-    "u",
-    "s",
-    "a",
-    "ul",
-    "ol",
-    "li",
-    "blockquote",
-    "code",
-    "pre",
-    "img",
-    "figure",
-    "figcaption",
-    "hr",
-    "span",
-    "div",
-  ],
-  ALLOWED_ATTR: ["href", "title", "src", "alt", "data-img-id", "class", "style"],
-  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-};
+import IdbImage from "./IdbImage.jsx";
+import { useTheme } from "@/lib/theme.jsx";
 
 const Preview = ({ markdown }) => {
-  const cleanHTML = DOMPurify.sanitize(markdown, SANITIZE_CONFIG);
-
+  const { theme } = useTheme();
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-5 py-3">
@@ -47,7 +15,8 @@ const Preview = ({ markdown }) => {
       </div>
       {markdown ? (
         <div
-          className="scrollbar-thin markdown-preview ck-content flex-1 overflow-y-auto px-6 py-5 text-sm leading-relaxed text-foreground
+          data-color-mode={theme}
+          className="scrollbar-thin markdown-preview flex-1 overflow-y-auto px-6 py-5 text-sm leading-relaxed text-foreground
             [&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:text-foreground
             [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-foreground
             [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-foreground
@@ -59,9 +28,15 @@ const Preview = ({ markdown }) => {
             [&_blockquote]:my-3 [&_blockquote]:border-l-[3px] [&_blockquote]:border-primary [&_blockquote]:py-0.5 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground
             [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6
             [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6
+            [&_li]:my-1
             [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-lg"
-          dangerouslySetInnerHTML={{ __html: cleanHTML }}
-        />
+        >
+          <MDEditor.Markdown
+            source={markdown}
+            components={{ img: IdbImage }}
+            style={{ background: "transparent", color: "inherit" }}
+          />
+        </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
           <Eye className="h-6 w-6 text-muted-foreground/50" />

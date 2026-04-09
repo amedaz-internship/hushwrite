@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { CKEditor } from "@ckeditor/ckeditor5-react";
-import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
+import MDEditor, { commands as mdCommands } from "@uiw/react-md-editor";
 import toast from "react-hot-toast";
+import IdbImage from "./IdbImage.jsx";
+import { useTheme } from "@/lib/theme.jsx";
 import {
   saveNote,
   getAllNotes,
   getNote,
   deleteNote,
   saveImage,
-  getImage,
   deleteImage,
 } from "../js/db";
 import { v4 as uuid4 } from "uuid";
@@ -30,25 +30,15 @@ import { Save, Trash2, ImagePlus, FileText, Lock, CheckCircle2, Loader2 } from "
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 const IDLE_LOCK_MS = 5 * 60 * 1000;
 
-// Pull image IDs out of an HTML string by reading every <img data-img-id="...">.
-const extractImageIds = (htmlContent) => {
-  const div = document.createElement("div");
-  div.innerHTML = htmlContent;
-  return Array.from(div.querySelectorAll("img[data-img-id]")).map(
-    (img) => img.dataset.imgId,
-  );
-};
-
-// Strip data: URLs from <img> tags before encryption — the actual blob is
-// stored in the IndexedDB images store and re-hydrated on load. Without this,
-// every save would store each image twice (and 3-4× its raw size, base64).
-const stripImageSources = (htmlContent) => {
-  const div = document.createElement("div");
-  div.innerHTML = htmlContent;
-  for (const img of div.querySelectorAll("img[data-img-id]")) {
-    img.removeAttribute("src");
-  }
-  return div.innerHTML;
+// Pull image IDs out of a markdown string. Embedded images use the
+// `idb://<uuid>` URL scheme so the markdown source stays small and we don't
+// have to mangle it on save (no data URLs ever live in the source). The
+// resolver in IdbImage hydrates them at render time.
+const IDB_IMG_REGEX = /!\[[^\]]*\]\(idb:\/\/([0-9a-f-]+)\)/gi;
+const extractImageIds = (md) => {
+  const ids = [];
+  for (const m of md.matchAll(IDB_IMG_REGEX)) ids.push(m[1]);
+  return ids;
 };
 
 const Markdown = ({
@@ -61,8 +51,8 @@ const Markdown = ({
   setTitle,
   setNotes,
 }) => {
-  const editorRef = useRef(null);
   const fileInputRef = useRef(null);
+  const { theme } = useTheme();
 
   const [modal, setModal] = useState(null);
 
@@ -79,9 +69,6 @@ const Markdown = ({
   const isSavingRef = useRef(false);
   const idleTimerRef = useRef(null);
   const debounceTimerRef = useRef(null);
-  // Re-entry guard so the new-note passphrase prompt doesn't re-fire on every
-  // keystroke while the modal is already open.
-  const isPromptingRef = useRef(false);
 
   // Save status surfaced in the header. "idle" | "dirty" | "saving" | "saved" | "locked"
   const [saveStatus, setSaveStatus] = useState("idle");
@@ -129,26 +116,6 @@ const Markdown = ({
     reject(new Error("cancelled"));
   };
 
-  // Re-hydrate <img> data: URLs from the images store after decryption.
-  const renderImages = async (htmlContent) => {
-    const div = document.createElement("div");
-    div.innerHTML = htmlContent;
-    for (const img of div.querySelectorAll("img[data-img-id]")) {
-      const imageEntry = await getImage(img.dataset.imgId);
-      if (imageEntry) {
-        await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            img.src = reader.result;
-            resolve();
-          };
-          reader.readAsDataURL(imageEntry.blob);
-        });
-      }
-    }
-    return div.innerHTML;
-  };
-
   // Encrypt+persist the current editor state. Used by both the manual Save
   // button (which prompts for a passphrase the first time) and the background
   // auto-save (which uses the cached session key). Returns true on success.
@@ -160,8 +127,9 @@ const Markdown = ({
       isSavingRef.current = true;
       setSaveStatus("saving");
       try {
-        const stripped = stripImageSources(markdown);
-        const { ciphertext, iv } = await encryptContent(stripped, key);
+        // Markdown source already stores image references as `idb://<uuid>`
+        // — no inline data URLs to strip. Encrypt as-is.
+        const { ciphertext, iv } = await encryptContent(markdown, key);
         const imageIds = extractImageIds(markdown);
 
         const existingNote = currentId ? await getNote(currentId) : null;
@@ -215,14 +183,29 @@ const Markdown = ({
     }
   }, [persistNote]);
 
-  // The lock function. Phase 1: if there's a cached key and unsaved edits,
-  // flush them to disk using the still-cached key. Phase 2 (unconditional):
-  // wipe key, salt, plaintext state, and editor contents. Phase 3: set
-  // saveStatus to "locked" so the UI reflects it.
+  // Internal helper: wipe everything in memory. Always safe to call.
+  const wipeSession = useCallback(() => {
+    sessionKeyRef.current = null;
+    sessionSaltRef.current = null;
+    lastSavedRef.current = { markdown: "", title: "" };
+    setMarkdown("");
+    setTitle("");
+    setCurrentId(null);
+    setSaveStatus("locked");
+  }, [setMarkdown, setTitle, setCurrentId]);
+
+  // The lock function. Three branches depending on what's in memory:
   //
-  // The wipe is unconditional — even if the flush throws — because the lock
-  // guarantee has to be absolute. An attacker who can cause IndexedDB errors
-  // must not be able to prevent the lock from happening.
+  //   1. Unlocked existing note + dirty edits → flush with cached key, wipe.
+  //   2. Brand-new note (no key) + content+title typed → prompt for passphrase,
+  //      derive a key, encrypt, persist, wipe. If user cancels the prompt
+  //      (i.e. "I'm here, don't lock me out"), we leave the session intact.
+  //   3. Anything else (no dirty content, or empty note) → just wipe.
+  //
+  // Branch 1's wipe is unconditional even if the flush throws — the lock
+  // guarantee has to be absolute for already-saved notes. Branch 2 is the
+  // new-note path: we *can't* wipe without saving first (no key, no recovery),
+  // and we *can't* save without a passphrase, so the prompt is mandatory.
   const lock = useCallback(async () => {
     clearTimeout(idleTimerRef.current);
     clearTimeout(debounceTimerRef.current);
@@ -231,23 +214,45 @@ const Markdown = ({
       markdown !== lastSavedRef.current.markdown ||
       title !== lastSavedRef.current.title;
 
-    if (sessionKeyRef.current && sessionSaltRef.current && isDirty) {
-      try {
-        await persistNote(sessionKeyRef.current, sessionSaltRef.current);
-      } catch {
-        toast.error("Lock: last save failed, recent edits may be lost.");
+    // Branch 1: existing unlocked note with edits.
+    if (sessionKeyRef.current && sessionSaltRef.current) {
+      if (isDirty) {
+        try {
+          await persistNote(sessionKeyRef.current, sessionSaltRef.current);
+        } catch {
+          toast.error("Lock: last save failed, recent edits may be lost.");
+        }
       }
+      wipeSession();
+      return;
     }
 
-    sessionKeyRef.current = null;
-    sessionSaltRef.current = null;
-    lastSavedRef.current = { markdown: "", title: "" };
-    setMarkdown("");
-    setTitle("");
-    setCurrentId(null);
-    if (editorRef.current) editorRef.current.setData("");
-    setSaveStatus("locked");
-  }, [markdown, title, persistNote, setMarkdown, setTitle, setCurrentId]);
+    // Branch 2: brand-new note that has content but no key yet. Prompt for a
+    // passphrase so we can encrypt-and-save before wiping. If the user
+    // dismisses the prompt, treat that as "I'm still here, don't lock" and
+    // leave the in-memory draft alone — the next idle period will retry.
+    if (!currentId && isDirty && markdown.trim() && title.trim()) {
+      try {
+        const pw = await askPassphrase("encrypt");
+        const salt = generateSalt();
+        const key = await deriveKey(pw, salt);
+        await persistNote(key, salt);
+        // Save succeeded — now wipe. We deliberately do NOT cache the key
+        // here; the user is being locked out, not unlocked.
+        wipeSession();
+      } catch (err) {
+        if (err.message !== "cancelled" && err.message !== "superseded") {
+          toast.error(err.message);
+        }
+        // Cancelled/failed: leave the draft in memory. The user is present
+        // and explicitly chose not to save right now.
+      }
+      return;
+    }
+
+    // Branch 3: nothing to flush. Plain wipe.
+    wipeSession();
+  }, [markdown, title, currentId, persistNote, wipeSession, askPassphrase]);
 
   // Load + decrypt a note when the user picks one from the sidebar. On
   // success, cache the derived key and salt so subsequent edits auto-save
@@ -264,19 +269,17 @@ const Markdown = ({
           key,
           new Uint8Array(selectedNote.iv),
         );
-        const contentWithImages = await renderImages(decrypted);
 
         sessionKeyRef.current = key;
         sessionSaltRef.current = salt;
         lastSavedRef.current = {
-          markdown: contentWithImages,
+          markdown: decrypted,
           title: selectedNote.title || "",
         };
 
-        setMarkdown(contentWithImages);
+        setMarkdown(decrypted);
         setCurrentId(selectedNote.id);
         setTitle(selectedNote.title || "");
-        if (editorRef.current) editorRef.current.setData(contentWithImages);
         setSaveStatus("saved");
         toast.success("Note unlocked");
       } catch (err) {
@@ -369,7 +372,6 @@ const Markdown = ({
       setMarkdown("");
       setTitle("");
       setCurrentId(null);
-      if (editorRef.current) editorRef.current.setData("");
       setNotes(await getAllNotes());
       setSaveStatus("idle");
       toast.success("Note deleted!");
@@ -387,61 +389,26 @@ const Markdown = ({
     try {
       const id = uuid4();
       await saveImage({ id, blob: file });
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("Failed to read image"));
-        reader.readAsDataURL(file);
-      });
-      const html = `<figure class="image"><img src="${dataUrl}" data-img-id="${id}" style="max-width:100%;" /></figure>`;
-      if (editorRef.current) {
-        editorRef.current.setData(editorRef.current.getData() + html);
-        setMarkdown(editorRef.current.getData());
-      }
+      // Insert a markdown image with the idb:// scheme. The actual blob lives
+      // in the images store; IdbImage hydrates it at render time. The markdown
+      // source stays small and contains no inline base64.
+      const altText = file.name.replace(/\.[^.]+$/, "");
+      const snippet = `\n![${altText}](idb://${id})\n`;
+      setMarkdown((prev) => (prev || "") + snippet);
       toast.success("Image attached!");
     } catch (err) {
       toast.error("Failed to attach image: " + err.message);
     }
   };
 
-  // First-edit passphrase prompt for brand-new notes. As soon as the user has
-  // typed both a title and some content into a never-saved note, prompt for a
-  // passphrase, derive a key, persist immediately, and cache the key. From
-  // that moment on the new note behaves exactly like any other unlocked note:
-  // auto-save fires, idle-lock flushes-then-wipes, etc.
-  //
-  // Using a ref guard (isPromptingRef) so the effect doesn't re-open the
-  // modal on every keystroke while the user is mid-prompt.
+  // Debounced auto-save / dirty indicator. Two cases:
+  //   - Unlocked existing note (cached key): mark dirty, schedule a silent
+  //     background save 1.5s after the last edit.
+  //   - Brand-new note (no key): mark dirty so the UI matches the unlocked
+  //     experience. We can't actually persist without a passphrase, so the
+  //     real save happens at lock time (idle timer / Lock button / tab-hide),
+  //     where the user gets prompted once.
   useEffect(() => {
-    if (currentId) return;
-    if (sessionKeyRef.current) return;
-    if (isPromptingRef.current) return;
-    if (!markdown.trim() || !title.trim()) return;
-
-    isPromptingRef.current = true;
-    (async () => {
-      try {
-        const pw = await askPassphrase("encrypt");
-        const salt = generateSalt();
-        const key = await deriveKey(pw, salt);
-        await persistNote(key, salt);
-        sessionKeyRef.current = key;
-        sessionSaltRef.current = salt;
-        toast.success("Encrypted & auto-saving");
-      } catch (err) {
-        if (err.message !== "cancelled" && err.message !== "superseded") {
-          toast.error(err.message);
-        }
-      } finally {
-        isPromptingRef.current = false;
-      }
-    })();
-  }, [markdown, title, currentId, askPassphrase, persistNote]);
-
-  // Debounced auto-save: when markdown/title change and the note is unlocked,
-  // schedule a save 1.5s after the last edit. The save itself is silent.
-  useEffect(() => {
-    if (!sessionKeyRef.current) return;
     const isDirty =
       markdown !== lastSavedRef.current.markdown ||
       title !== lastSavedRef.current.title;
@@ -449,6 +416,8 @@ const Markdown = ({
     if (!markdown.trim() || !title.trim()) return;
 
     setSaveStatus("dirty");
+
+    if (!sessionKeyRef.current) return; // new note: no background save
     clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       autoSave();
@@ -458,36 +427,57 @@ const Markdown = ({
   }, [markdown, title, autoSave]);
 
   // Idle auto-lock: any keystroke (markdown/title change) resets a 5-minute
-  // timer. When it fires, lock() runs (which flushes-then-wipes).
+  // timer. When it fires, lock() runs. For an unlocked existing note this
+  // flushes-then-wipes; for a brand-new note with content+title it prompts
+  // for a passphrase, encrypts, persists, then wipes.
+  //
+  // We arm the timer in two cases:
+  //   - The note is unlocked (cached key) — standard idle-lock.
+  //   - The note is brand-new (no key) but the user has typed both a title
+  //     and content — after 5 min of inactivity, prompt to save+lock.
   useEffect(() => {
-    if (!sessionKeyRef.current) return;
+    const hasContent = markdown.trim() && title.trim();
+    const armed = sessionKeyRef.current || (!currentId && hasContent);
+    if (!armed) return;
+
     clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
       lock();
       toast("Locked due to inactivity", { icon: "🔒" });
     }, IDLE_LOCK_MS);
     return () => clearTimeout(idleTimerRef.current);
-  }, [markdown, title, lock]);
+  }, [markdown, title, currentId, lock]);
 
   // Tab-hide and unload locks. visibilitychange fires when the user switches
   // tabs or minimizes; pagehide fires when the page is being torn down.
-  // Both call lock(), which flushes-then-wipes. We also wire beforeunload to
-  // surface the browser's native "unsaved changes" dialog if there's anything
-  // dirty in memory that we couldn't flush (e.g. a brand-new note with no key).
+  //
+  // For an unlocked existing note: lock() flushes-then-wipes silently.
+  // For a brand-new note: lock() pops the passphrase modal so the user can
+  // encrypt+save before the wipe (the modal sits open until they come back
+  // to the tab and respond — same UX as the idle-lock prompt).
+  //
+  // pagehide can't show a modal (the page is going away), so for new notes
+  // we rely on beforeunload's native browser dialog as the safety net.
   useEffect(() => {
+    const isDirty = () =>
+      markdown !== lastSavedRef.current.markdown ||
+      title !== lastSavedRef.current.title;
+    const hasNewNoteDraft = () =>
+      !currentId && markdown.trim() && title.trim() && isDirty();
+
     const onVisibility = () => {
-      if (document.hidden && sessionKeyRef.current) {
+      if (!document.hidden) return;
+      if (sessionKeyRef.current || hasNewNoteDraft()) {
         lock();
       }
     };
     const onPageHide = () => {
+      // Only the existing-note flush path is safe here — pagehide can't await
+      // a modal. New-note drafts are protected by beforeunload below.
       if (sessionKeyRef.current) lock();
     };
     const onBeforeUnload = (e) => {
-      const isDirty =
-        markdown !== lastSavedRef.current.markdown ||
-        title !== lastSavedRef.current.title;
-      if (isDirty) {
+      if (isDirty()) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -500,7 +490,7 @@ const Markdown = ({
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [lock, markdown, title]);
+  }, [lock, markdown, title, currentId]);
 
   const statusLabel = (() => {
     switch (saveStatus) {
@@ -556,7 +546,8 @@ const Markdown = ({
         </div>
         <div className="flex items-center gap-3 text-xs">
           {statusLabel}
-          {sessionKeyRef.current && (
+          {(sessionKeyRef.current ||
+            (!currentId && markdown.trim() && title.trim())) && (
             <Button
               variant="ghost"
               size="sm"
@@ -582,26 +573,34 @@ const Markdown = ({
             className="h-12 border-0 border-b border-border bg-transparent px-1 text-2xl font-semibold tracking-tight shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
 
-          <CKEditor
-            editor={ClassicEditor}
-            data={markdown}
-            onReady={(editor) => (editorRef.current = editor)}
-            onChange={(_event, editor) => setMarkdown(editor.getData())}
-            config={{
-              toolbar: [
-                "heading",
-                "|",
-                "bold",
-                "italic",
-                "link",
-                "bulletedList",
-                "numberedList",
-                "blockQuote",
-                "undo",
-                "redo",
-              ],
-            }}
-          />
+          <div data-color-mode={theme}>
+            <MDEditor
+              value={markdown}
+              onChange={(val) => setMarkdown(val || "")}
+              height={500}
+              preview="edit"
+              previewOptions={{
+                components: { img: IdbImage },
+              }}
+              commands={[
+                mdCommands.bold,
+                mdCommands.italic,
+                mdCommands.strikethrough,
+                mdCommands.hr,
+                mdCommands.divider,
+                mdCommands.link,
+                mdCommands.quote,
+                mdCommands.code,
+                mdCommands.codeBlock,
+                mdCommands.divider,
+                mdCommands.unorderedListCommand,
+                mdCommands.orderedListCommand,
+                mdCommands.checkedListCommand,
+                mdCommands.divider,
+                mdCommands.help,
+              ]}
+            />
+          </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
             <input

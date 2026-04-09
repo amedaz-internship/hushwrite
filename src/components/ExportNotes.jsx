@@ -1,14 +1,40 @@
 import html2pdf from "html2pdf.js";
-import TurndownService from "turndown";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { Button } from "@/components/ui/button";
 import { FileDown, FileText } from "lucide-react";
+import { getImage } from "../js/db";
+
+// Replace `idb://<uuid>` image URLs with data URLs by reading blobs from
+// IndexedDB. Used by the PDF export so embedded images render in the output.
+const inlineIdbImages = async (html) => {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  await Promise.all(
+    Array.from(div.querySelectorAll("img")).map(async (img) => {
+      const src = img.getAttribute("src") || "";
+      if (!src.startsWith("idb://")) return;
+      const id = src.slice("idb://".length);
+      const entry = await getImage(id);
+      if (!entry) {
+        img.remove();
+        return;
+      }
+      const dataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(entry.blob);
+      });
+      img.setAttribute("src", dataUrl);
+    }),
+  );
+  return div.innerHTML;
+};
 
 const ExportNote = ({ note }) => {
   const exportAsMD = () => {
-    const turndownService = new TurndownService();
-    const markdownContent = turndownService.turndown(note.content);
-
-    const blob = new Blob([markdownContent], { type: "text/markdown" });
+    // Content is already markdown — write it straight out.
+    const blob = new Blob([note.content || ""], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const safeTitle = (note.title || "note")
@@ -20,11 +46,15 @@ const ExportNote = ({ note }) => {
     URL.revokeObjectURL(url);
   };
 
-  const exportAsPDF = () => {
+  const exportAsPDF = async () => {
+    const rawHtml = marked.parse(note.content || "");
+    const withImages = await inlineIdbImages(rawHtml);
+    const cleanHtml = DOMPurify.sanitize(withImages);
+
     const tempDiv = document.createElement("div");
     tempDiv.style.width = "210mm";
     tempDiv.style.padding = "20px";
-    tempDiv.innerHTML = note.content;
+    tempDiv.innerHTML = cleanHtml;
     document.body.appendChild(tempDiv);
 
     html2pdf()
