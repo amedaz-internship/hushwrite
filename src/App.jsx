@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import Sidebar from "./components/Sidebar";
 import Markdown from "./components/Markdown";
 import { Toaster } from "react-hot-toast";
@@ -19,6 +20,18 @@ const App = () => {
     loadNotes();
   }, []);
 
+  // Imported .hwrite content lands in the editor as a brand-new draft.
+  // We deliberately don't write it to IndexedDB here — the user must save
+  // through the normal flow so the note gets re-encrypted with their own
+  // app passphrase. Plaintext never touches the notes store.
+  const handleImportNote = ({ markdown: md, title: t }) => {
+    setSelectedNote(null);
+    setCurrentId(null);
+    setTitle(t || "Untitled");
+    setMarkdown(md || "");
+    toast.success("Imported. Save to encrypt with your passphrase.");
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar
@@ -28,6 +41,7 @@ const App = () => {
         onSelectNote={setSelectedNote}
         currentId={currentId}
         currentTitle={title}
+        onImportNote={handleImportNote}
       />
 
       <Markdown

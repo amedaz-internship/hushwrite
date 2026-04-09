@@ -1,12 +1,3 @@
-// AES-256-GCM with PBKDF2-HMAC-SHA256 key derivation.
-//
-// Notes for future-me:
-// - GCM is an authenticated cipher: any tampering of ciphertext, IV, or AAD
-//   makes `crypto.subtle.decrypt` throw automatically. We do NOT need a separate
-//   plaintext hash for tamper detection (and storing one would leak a known-
-//   plaintext oracle).
-// - Iteration count follows current OWASP guidance for PBKDF2-SHA256.
-// - Derived key is non-extractable so JS can't read its raw bytes.
 
 const PBKDF2_ITERATIONS = 600_000;
 

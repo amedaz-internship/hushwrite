@@ -1,9 +1,13 @@
+import { useState } from "react";
 import html2pdf from "html2pdf.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
-import { FileDown, FileText } from "lucide-react";
+import { FileDown, FileText, FileLock2 } from "lucide-react";
 import { getImage } from "../js/db";
+import { serializeNote, downloadHwrite } from "../js/hwrite";
+import HwriteExportDialog from "./HwriteExportDialog";
 
 // Replace `idb://<uuid>` image URLs with data URLs by reading blobs from
 // IndexedDB. Used by the PDF export so embedded images render in the output.
@@ -32,6 +36,29 @@ const inlineIdbImages = async (html) => {
 };
 
 const ExportNote = ({ note }) => {
+  const [hwriteOpen, setHwriteOpen] = useState(false);
+
+  const exportAsHwrite = async ({ encrypted, passphrase }) => {
+    setHwriteOpen(false);
+    try {
+      const blob = await serializeNote(
+        {
+          title: note.title,
+          markdown: note.content,
+          // Created/modified aren't tracked at this level — let serializeNote
+          // stamp `now` for both. Future work: thread real timestamps through.
+        },
+        { encrypted, passphrase },
+      );
+      const filename = downloadHwrite(blob, note.title);
+      toast.success(
+        encrypted ? `Exported encrypted ${filename}` : `Exported ${filename}`,
+      );
+    } catch (err) {
+      toast.error(err.message || "Export failed");
+    }
+  };
+
   const exportAsMD = () => {
     // Content is already markdown — write it straight out.
     const blob = new Blob([note.content || ""], { type: "text/markdown" });
@@ -80,6 +107,21 @@ const ExportNote = ({ note }) => {
         <FileDown className="mr-1.5 h-4 w-4" />
         PDF
       </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setHwriteOpen(true)}
+        disabled={!note.content?.trim()}
+      >
+        <FileLock2 className="mr-1.5 h-4 w-4" />
+        .hwrite
+      </Button>
+      {hwriteOpen && (
+        <HwriteExportDialog
+          onConfirm={exportAsHwrite}
+          onCancel={() => setHwriteOpen(false)}
+        />
+      )}
     </>
   );
 };

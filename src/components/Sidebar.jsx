@@ -1,8 +1,11 @@
+import { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
-import { Plus, Lock, FileText, Sun, Moon } from "lucide-react";
+import { Plus, Lock, FileText, Sun, Moon, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme.jsx";
+import { parseHwrite, decryptHwrite } from "../js/hwrite";
+import HwriteImportDialog from "./HwriteImportDialog";
 
 const Sidebar = ({
   setMarkdown,
@@ -11,8 +14,12 @@ const Sidebar = ({
   onSelectNote,
   currentId,
   currentTitle,
+  onImportNote,
 }) => {
   const { theme, toggleTheme } = useTheme();
+  const fileInputRef = useRef(null);
+  const [importState, setImportState] = useState(null); // { parsed, fileSize }
+  const [dragActive, setDragActive] = useState(false);
 
   const newNote = () => {
     setMarkdown("");
@@ -21,8 +28,62 @@ const Sidebar = ({
     toast.success("New note created!");
   };
 
+  // Read + parse + validate a .hwrite File. On any error, surface a toast and
+  // stop. On success, open the preview dialog. Decryption (if needed) happens
+  // later inside the dialog.
+  const handleHwriteFile = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = await parseHwrite(text);
+      setImportState({ parsed, fileSize: file.size });
+    } catch (err) {
+      toast.error(err.message || "Could not read .hwrite file");
+    }
+  };
+
+  const onFilePick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    handleHwriteFile(file);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".hwrite")) {
+      toast.error("Only .hwrite files can be imported.");
+      return;
+    }
+    handleHwriteFile(file);
+  };
+
+  const onDragOver = (e) => {
+    e.preventDefault();
+    if (!dragActive) setDragActive(true);
+  };
+  const onDragLeave = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+  };
+
+  const handleImportConfirm = ({ markdown, title }) => {
+    setImportState(null);
+    onImportNote?.({ markdown, title });
+  };
+
   return (
-    <aside className="flex h-screen w-72 flex-col gap-5 border-r border-sidebar-border bg-sidebar p-5 text-sidebar-foreground">
+    <aside
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={cn(
+        "relative flex h-screen w-72 flex-col gap-5 border-r border-sidebar-border bg-sidebar p-5 text-sidebar-foreground",
+        dragActive && "ring-2 ring-primary ring-inset",
+      )}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/30">
@@ -49,10 +110,27 @@ const Sidebar = ({
         </button>
       </div>
 
-      <Button onClick={newNote} className="w-full shadow-sm">
-        <Plus className="mr-2 h-4 w-4" />
-        New Note
-      </Button>
+      <div className="flex flex-col gap-2">
+        <Button onClick={newNote} className="w-full shadow-sm">
+          <Plus className="mr-2 h-4 w-4" />
+          New Note
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full"
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Import .hwrite
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".hwrite,application/json"
+          hidden
+          onChange={onFilePick}
+        />
+      </div>
 
       <div className="flex items-center justify-between px-1">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-muted">
@@ -127,6 +205,22 @@ const Sidebar = ({
       <div className="border-t border-sidebar-border pt-3 text-[10px] text-sidebar-muted">
         Locally encrypted · Offline-first
       </div>
+
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary/10 text-xs font-medium text-primary">
+          Drop .hwrite file to import
+        </div>
+      )}
+
+      {importState && (
+        <HwriteImportDialog
+          parsed={importState.parsed}
+          fileSize={importState.fileSize}
+          onDecrypt={(pw) => decryptHwrite(importState.parsed, pw)}
+          onConfirm={handleImportConfirm}
+          onCancel={() => setImportState(null)}
+        />
+      )}
     </aside>
   );
 };
