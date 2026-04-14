@@ -17,7 +17,7 @@ import {
 
 // Tier 1 timings.
 const AUTOSAVE_DEBOUNCE_MS = 1500;
-const IDLE_LOCK_MS = 5 * 60 * 1000;
+const IDLE_LOCK_MS = 3 * 60 * 1000;
 
 
 const IDB_IMG_REGEX = /!\[[^\]]*\]\(idb:\/\/([0-9a-f-]+)\)/gi;
