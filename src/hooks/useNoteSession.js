@@ -27,6 +27,8 @@ const extractImageIds = (md) => {
   return ids;
 };
 const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
+const isQuietErr = (err) =>
+  err?.message === "cancelled" || err?.message === "superseded";
 export function useNoteSession({
   markdown,
   title,
@@ -46,6 +48,7 @@ export function useNoteSession({
 
 
   const [saveStatus, setSaveStatus] = useState("idle");
+  const [unlockError, setUnlockError] = useState(null);
 
   const isUnlocked = useCallback(
     () => !!(sessionKeyRef.current && sessionSaltRef.current),
@@ -134,6 +137,19 @@ export function useNoteSession({
   }, [setMarkdown, setTitle, setCurrentId]);
 
   
+  // Lock the session without yanking the note out of the sidebar.
+  // We persist any pending edits, drop the encryption key + plaintext from
+  // memory, but keep `currentId` so the note stays selected and the user can
+  // re-enter their passphrase to resume editing.
+  const lockKeepSelected = useCallback(() => {
+    sessionKeyRef.current = null;
+    sessionSaltRef.current = null;
+    lastSavedRef.current = { markdown: "", title: "" };
+    setMarkdown("");
+    setTitle("");
+    setSaveStatus("locked");
+  }, [setMarkdown, setTitle]);
+
   const lock = useCallback(async () => {
     clearTimeout(idleTimerRef.current);
     clearTimeout(debounceTimerRef.current);
@@ -149,7 +165,7 @@ export function useNoteSession({
           toast.error("Lock: last save failed, recent edits may be lost.");
         }
       }
-      wipeSession();
+      lockKeepSelected();
       return;
     }
 
@@ -160,12 +176,11 @@ export function useNoteSession({
         const salt = generateSalt();
         const key = await deriveKey(pw, salt);
         await persistNote(key, salt);
-        wipeSession();
+        lockKeepSelected();
       } catch (err) {
-        if (err.message !== "cancelled" && err.message !== "superseded") {
-          toast.error(err.message);
-        }
- 
+        if (!isQuietErr(err)) toast.error(err.message);
+        // Cancelled or failed: drop the plaintext draft entirely.
+        wipeSession();
       }
       return;
     }
@@ -178,6 +193,7 @@ export function useNoteSession({
     currentId,
     persistNote,
     wipeSession,
+    lockKeepSelected,
     askPassphrase,
     isUnlocked,
     isDirty,
@@ -215,15 +231,84 @@ export function useNoteSession({
       setCurrentId(selectedNote.id);
       setTitle(decryptedTitle);
       setSaveStatus("saved");
+      setUnlockError(null);
     },
     [askPassphrase, setMarkdown, setCurrentId, setTitle],
   );
 
+  // Re-prompt for the passphrase on the currently-selected (locked) note and
+  // restore its plaintext into the editor.
+  const unlockCurrent = useCallback(async () => {
+    if (isUnlocked()) return;
+    if (!currentId) return;
+    const note = await getNote(currentId);
+    if (!note) return;
+    try {
+      await unlockExisting(note);
+    } catch (err) {
+      if (!isQuietErr(err)) setUnlockError(err.message);
+      throw err;
+    }
+  }, [currentId, isUnlocked, unlockExisting]);
+
+  // Switch the editor to a different note: lock+autosave the current one,
+  // move the sidebar highlight immediately, then prompt for the new note's
+  // passphrase. Wrong passphrase leaves the note in the locked-card UI with
+  // an error message instead of bouncing back to the prior note.
+  const switchToNote = useCallback(
+    async (note) => {
+      if (!note) return;
+      if (note.id === currentId && isUnlocked()) return;
+
+      clearTimeout(idleTimerRef.current);
+      clearTimeout(debounceTimerRef.current);
+
+      if (isUnlocked() && isDirty()) {
+        try {
+          await persistNote(sessionKeyRef.current, sessionSaltRef.current);
+        } catch {
+          toast.error("Could not save current note before switching.");
+        }
+      }
+
+      sessionKeyRef.current = null;
+      sessionSaltRef.current = null;
+      lastSavedRef.current = { markdown: "", title: "" };
+      setMarkdown("");
+      setTitle("");
+      setCurrentId(note.id);
+      setSaveStatus("locked");
+      setUnlockError(null);
+
+      try {
+        await unlockExisting(note);
+      } catch (err) {
+        if (!isQuietErr(err)) setUnlockError(err.message);
+        throw err;
+      }
+    },
+    [
+      currentId,
+      isUnlocked,
+      isDirty,
+      persistNote,
+      setMarkdown,
+      setTitle,
+      setCurrentId,
+      unlockExisting,
+    ],
+  );
+
   const saveManual = useCallback(async () => {
-    if (isUnlocked()) {
+    // Existing notes reuse their own derived key+salt — we can't change
+    // the passphrase of an already-encrypted note through a normal save.
+    if (isUnlocked() && currentId) {
       await persistNote(sessionKeyRef.current, sessionSaltRef.current);
       return "saved";
     }
+    // New notes (no id yet) always prompt for a passphrase so each note
+    // can have its own, independent of any other note that happens to be
+    // unlocked in the current session.
     const pw = await askPassphrase("encrypt");
     const salt = generateSalt();
     const key = await deriveKey(pw, salt);
@@ -231,7 +316,7 @@ export function useNoteSession({
     sessionKeyRef.current = key;
     sessionSaltRef.current = salt;
     return "encrypted";
-  }, [persistNote, askPassphrase, isUnlocked]);
+  }, [persistNote, askPassphrase, isUnlocked, currentId]);
 
 
   const deleteCurrent = useCallback(async () => {
@@ -277,14 +362,18 @@ export function useNoteSession({
 
     setSaveStatus("dirty");
 
-    if (!sessionKeyRef.current) return; // new note: no background save
+    // Only auto-save when we're editing a note that already exists in the
+    // store (has an id) AND the session key matches that note. New drafts
+    // never background-save — they wait for a manual save so the user can
+    // provide a fresh passphrase for the new note.
+    if (!sessionKeyRef.current || !currentId) return;
     clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       autoSave();
     }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(debounceTimerRef.current);
-  }, [markdown, title, autoSave, isDirty]);
+  }, [markdown, title, currentId, autoSave, isDirty]);
 
 
   useEffect(() => {
@@ -293,12 +382,19 @@ export function useNoteSession({
     if (!armed) return;
 
     clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      lock();
-      toast("Locked due to inactivity", { icon: "🔒" });
+    idleTimerRef.current = setTimeout(async () => {
+      await lock();
+      toast("Locked due to inactivity. Enter your passphrase to continue.", {
+        icon: "🔒",
+      });
+      if (!document.hidden) {
+        unlockCurrent().catch(() => {
+          // Surfaced inside the locked-card UI via unlockError.
+        });
+      }
     }, IDLE_LOCK_MS);
     return () => clearTimeout(idleTimerRef.current);
-  }, [markdown, title, currentId, lock]);
+  }, [markdown, title, currentId, lock, unlockCurrent]);
 
    
   useEffect(() => {
@@ -309,9 +405,18 @@ export function useNoteSession({
       !currentId && markdown.trim() && title.trim() && isDirtyNow();
 
     const onVisibility = () => {
-      if (!document.hidden) return;
-      if (sessionKeyRef.current || hasNewNoteDraft()) {
-        lock();
+      if (document.hidden) {
+        if (sessionKeyRef.current || hasNewNoteDraft()) {
+          lock();
+        }
+        return;
+      }
+      // Returning to the tab while locked → re-prompt for the passphrase so
+      // the user can resume the note they had open.
+      if (!sessionKeyRef.current && currentId) {
+        unlockCurrent().catch(() => {
+          // Surfaced inside the locked-card UI via unlockError.
+        });
       }
     };
     const onPageHide = () => {
@@ -331,13 +436,16 @@ export function useNoteSession({
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [lock, markdown, title, currentId]);
+  }, [lock, unlockCurrent, markdown, title, currentId]);
 
   return {
     saveStatus,
+    unlockError,
     isUnlocked,
     lock,
     unlockExisting,
+    unlockCurrent,
+    switchToNote,
     saveManual,
     deleteCurrent,
   };

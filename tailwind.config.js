@@ -10,6 +10,7 @@ export default {
     },
     extend: {
       colors: {
+        // Existing semantic tokens (kept so shadcn primitives keep working)
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -51,11 +52,37 @@ export default {
           item: "hsl(var(--sidebar-item))",
           "item-hover": "hsl(var(--sidebar-item-hover))",
         },
+
+        // Vault palette — CSS-var backed so light/dark can swap via :root class
+        "surface": "var(--v-surface)",
+        "surface-dim": "var(--v-surface)",
+        "surface-container-lowest": "var(--v-surface-container-lowest)",
+        "surface-container-low": "var(--v-surface-container-low)",
+        "surface-container": "var(--v-surface-container)",
+        "surface-container-high": "var(--v-surface-container-high)",
+        "surface-container-highest": "var(--v-surface-container-highest)",
+        "surface-variant": "var(--v-surface-container-highest)",
+        "on-surface": "var(--v-on-surface)",
+        "on-background": "var(--v-on-surface)",
+        "on-surface-variant": "var(--v-on-surface-variant)",
+        "outline": "var(--v-outline)",
+        "outline-variant": "var(--v-outline-variant)",
+        "vault-primary": "var(--v-primary)",
+        "primary-container": "var(--v-primary-container)",
+        "on-primary-fixed": "var(--v-on-primary-fixed)",
+        "tertiary": "var(--v-tertiary)",
+        "error-container": "var(--v-error-container)",
+        "on-error": "var(--v-on-error)",
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      fontFamily: {
+        headline: ["Inter", "sans-serif"],
+        body: ["Inter", "sans-serif"],
+        label: ["Inter", "sans-serif"],
       },
       keyframes: {
         "accordion-down": {

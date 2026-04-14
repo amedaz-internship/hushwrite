@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MDEditor, { commands as mdCommands } from "@uiw/react-md-editor";
 import toast from "react-hot-toast";
 import { v4 as uuid4 } from "uuid";
@@ -7,47 +7,56 @@ import Preview from "./Preview.jsx";
 import ExportNote from "./ExportNotes.jsx";
 import PassphraseModal from "./PassPhraseModal.jsx";
 import DeleteModal from "./DeleteModal.jsx";
+import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme.jsx";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
-  Save,
-  Trash2,
-  ImagePlus,
-  FileText,
-  Lock,
-  CheckCircle2,
-  Loader2,
-} from "lucide-react";
-import { saveImage } from "../js/db";
+  saveImage,
+  getNote,
+  deleteNote as dbDeleteNote,
+  deleteImage,
+  getAllNotes,
+} from "../js/db";
 import { useModalQueue } from "@/hooks/useModalQueue";
 import { useNoteSession } from "@/hooks/useNoteSession";
 
-const SaveStatusLabel = ({ status }) => {
+const Icon = ({ name, className, fill }) => (
+  <span
+    className={cn("material-symbols-outlined", className)}
+    style={fill ? { fontVariationSettings: "'FILL' 1" } : undefined}
+  >
+    {name}
+  </span>
+);
+
+const SaveStatus = ({ status }) => {
   switch (status) {
     case "saving":
       return (
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
-        </span>
+        <div className="flex items-center gap-1.5 text-on-surface-variant">
+          <Icon name="progress_activity" className="animate-spin text-sm" />
+          <span>SAVING…</span>
+        </div>
       );
     case "saved":
       return (
-        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="h-3.5 w-3.5" /> Saved
-        </span>
+        <div className="flex items-center gap-1.5 text-on-surface-variant">
+          <Icon name="check_circle" className="text-sm" fill />
+          <span>SAVED TO VAULT</span>
+        </div>
       );
     case "dirty":
       return (
-        <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-          Unsaved changes
-        </span>
+        <div className="flex items-center gap-1.5 text-tertiary">
+          <Icon name="edit" className="text-sm" />
+          <span>UNSAVED</span>
+        </div>
       );
     case "locked":
       return (
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Lock className="h-3.5 w-3.5" /> Locked
-        </span>
+        <div className="flex items-center gap-1.5 text-outline">
+          <Icon name="lock" className="text-sm" />
+          <span>LOCKED</span>
+        </div>
       );
     default:
       return null;
@@ -66,8 +75,12 @@ const Markdown = ({
   title,
   setTitle,
   setNotes,
+  titleCache = {},
+  onLockRef,
+  onIsUnlockedRef,
 }) => {
   const fileInputRef = useRef(null);
+  const [showPreview, setShowPreview] = useState(true);
   const { theme } = useTheme();
 
   const { modal, open: openModal, confirm, cancel } = useModalQueue();
@@ -76,9 +89,11 @@ const Markdown = ({
 
   const {
     saveStatus,
+    unlockError,
     isUnlocked,
     lock,
-    unlockExisting,
+    unlockCurrent,
+    switchToNote,
     saveManual,
     deleteCurrent,
   } = useNoteSession({
@@ -92,33 +107,40 @@ const Markdown = ({
     askPassphrase,
   });
 
+  // Expose lock + unlock-state to TopNav via refs passed from App.
+  useEffect(() => {
+    if (onLockRef) onLockRef.current = lock;
+    if (onIsUnlockedRef) onIsUnlockedRef.current = isUnlocked;
+  });
+
   useEffect(() => {
     if (!currentId) setTitle("");
   }, [currentId, setTitle]);
 
-  // Decrypt and load whichever note the sidebar selected.
   useEffect(() => {
     if (!selectedNote) return;
     (async () => {
       try {
-        await unlockExisting(selectedNote);
+        await switchToNote(selectedNote);
         toast.success("Note unlocked");
       } catch (err) {
-        if (!isQuietError(err)) toast.error(err.message);
+        if (!isQuietError(err) && err?.message) {
+          /* surfaced inside locked card */
+        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNote]);
 
+  const wordCount = useMemo(() => {
+    const text = (markdown || "").replace(/[#*`>_\-[\]()!]/g, " ").trim();
+    if (!text) return 0;
+    return text.split(/\s+/).length;
+  }, [markdown]);
+
   const onSave = async () => {
-    if (!markdown.trim()) {
-      toast.error("Empty note!");
-      return;
-    }
-    if (!title.trim()) {
-      toast.error("Please enter a note title!");
-      return;
-    }
+    if (!markdown.trim()) return toast.error("Empty note!");
+    if (!title.trim()) return toast.error("Please enter a note title!");
     try {
       const result = await saveManual();
       toast.success(result === "encrypted" ? "Encrypted & saved" : "Saved");
@@ -128,13 +150,25 @@ const Markdown = ({
   };
 
   const handleDelete = async () => {
-    if (!currentId) {
-      toast.error("No note selected!");
-      return;
-    }
+    if (!currentId) return toast.error("No note selected!");
     try {
       await askDeleteConfirm();
-      await deleteCurrent();
+      // When the note is locked, skip the passphrase-verify step and
+      // delete straight from IndexedDB. The confirm dialog is the only
+      // guard — we never decrypt ciphertext we're about to drop.
+      if (!isUnlocked()) {
+        const note = await getNote(currentId);
+        if (note?.imageIds?.length) {
+          await Promise.all(note.imageIds.map((id) => deleteImage(id)));
+        }
+        await dbDeleteNote(currentId);
+        setMarkdown("");
+        setTitle("");
+        setCurrentId(null);
+        setNotes(await getAllNotes());
+      } else {
+        await deleteCurrent();
+      }
       toast.success("Note deleted!");
     } catch (err) {
       if (!isQuietError(err)) toast.error(err.message || "Delete failed");
@@ -148,9 +182,6 @@ const Markdown = ({
     try {
       const id = uuid4();
       await saveImage({ id, blob: file });
-      // Insert a markdown image with the idb:// scheme. The actual blob lives
-      // in the images store; IdbImage hydrates it at render time. The markdown
-      // source stays small and contains no inline base64.
       const altText = file.name.replace(/\.[^.]+$/, "");
       const snippet = `\n![${altText}](idb://${id})\n`;
       setMarkdown((prev) => (prev || "") + snippet);
@@ -160,17 +191,63 @@ const Markdown = ({
     }
   };
 
-  const onLockClick = () => {
-    lock();
-    toast("Locked", { icon: "🔒" });
+  const isLocked = saveStatus === "locked" && !!currentId && !isUnlocked();
+
+  const [inlinePassphrase, setInlinePassphrase] = useState("");
+  const [unlockPending, setUnlockPending] = useState(false);
+
+  // Re-arm the passphrase promise whenever the note is locked AND there's
+  // no pending modal AND no in-flight unlock attempt. This covers:
+  //   - entering the locked state for the first time
+  //   - retrying after a wrong-passphrase error
+  // It does NOT fire while a key derivation is in progress.
+  useEffect(() => {
+    if (!isLocked) return;
+    if (modal) return;
+    if (unlockPending) return;
+    unlockCurrent().catch(() => {
+      /* unlockError surfaced inline */
+    });
+  }, [isLocked, modal, unlockPending, unlockCurrent]);
+
+  // If we leave the locked context (e.g. user clicked "New Note" while a
+  // passphrase prompt was pending), cancel the stale decrypt promise so
+  // the modal dismisses and doesn't bleed into the next screen.
+  useEffect(() => {
+    if (!isLocked && modal?.type === "passphrase" && modal.mode === "decrypt") {
+      cancel();
+    }
+  }, [isLocked, modal, cancel]);
+
+  // Clear the pending flag once the attempt resolves (success → isLocked
+  // flips off; failure → unlockError updates). The re-arm effect will then
+  // open a fresh prompt only if we're still locked.
+  const prevUnlockError = useRef(unlockError);
+  useEffect(() => {
+    if (!unlockPending) return;
+    if (!isLocked || unlockError !== prevUnlockError.current) {
+      prevUnlockError.current = unlockError;
+      setUnlockPending(false);
+    }
+  }, [isLocked, unlockError, unlockPending]);
+
+  const handleInlineUnlock = (e) => {
+    e?.preventDefault?.();
+    if (!inlinePassphrase) return;
+    prevUnlockError.current = unlockError;
+    setUnlockPending(true);
+    confirm(inlinePassphrase);
+    setInlinePassphrase("");
   };
 
-  const showLockButton =
-    isUnlocked() || (!currentId && markdown.trim() && title.trim());
+  // Suppress the passphrase modal for decrypt mode while locked —
+  // the inline form in the locked card handles it instead.
+  const suppressPassphraseModal =
+    modal?.type === "passphrase" && modal.mode === "decrypt" && isLocked;
 
   return (
-    <main className="scrollbar-thin flex h-screen flex-1 flex-col overflow-y-auto">
-      {modal?.type === "passphrase" && (
+    <section className="relative flex flex-1 flex-col bg-surface">
+      {modal?.type === "passphrase" && !suppressPassphraseModal && (
         <PassphraseModal
           mode={modal.mode}
           onConfirm={confirm}
@@ -181,99 +258,179 @@ const Markdown = ({
         <DeleteModal onConfirm={() => confirm(true)} onCancel={cancel} />
       )}
 
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/80 px-8 py-4 backdrop-blur">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <FileText className="h-4 w-4" />
-          <span>{currentId ? "Editing note" : "New note"}</span>
-        </div>
-        <div className="flex items-center gap-3 text-xs">
-          <SaveStatusLabel status={saveStatus} />
-          {showLockButton && (
-            <Button variant="ghost" size="sm" onClick={onLockClick}>
-              <Lock className="mr-1.5 h-3.5 w-3.5" />
-              Lock
-            </Button>
+      {/* Toolbar / status bar */}
+      <div className="flex h-12 items-center justify-between border-b border-outline-variant/10 px-6">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            title="Insert image"
+            className="rounded p-1.5 text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
+          >
+            <Icon name="image" className="text-xl" />
+          </button>
+          <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+          <ExportNote note={{ content: markdown, title }} />
+          {currentId && !isLocked && (
+            <>
+              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+              <button
+                onClick={handleDelete}
+                title="Delete note (requires passphrase)"
+                className="rounded p-1.5 text-outline transition-all hover:bg-error-container/30 hover:text-error"
+              >
+                <Icon name="delete" className="text-xl" />
+              </button>
+            </>
           )}
-        </div>
-      </header>
-
-      <div className="flex w-full flex-1 gap-8 p-8">
-        <div className="flex flex-[0_0_60%] flex-col gap-4">
-          <Input
-            type="text"
-            placeholder="Untitled note"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="h-12 border-0 border-b border-border bg-transparent px-1 text-2xl font-semibold tracking-tight shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+          <button
+            onClick={() => setShowPreview((v) => !v)}
+            title={showPreview ? "Hide preview" : "Show preview"}
+            className={cn(
+              "rounded p-1.5 transition-all hover:bg-surface-container-high",
+              showPreview ? "text-vault-primary" : "text-outline hover:text-on-surface",
+            )}
+          >
+            <Icon name="visibility" className="text-xl" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={handleImageUpload}
           />
-
-          <div data-color-mode={theme}>
-            <MDEditor
-              value={markdown}
-              onChange={(val) => setMarkdown(val || "")}
-              height={500}
-              preview="edit"
-              previewOptions={{
-                components: { img: IdbImage },
-              }}
-              commands={[
-                mdCommands.bold,
-                mdCommands.italic,
-                mdCommands.strikethrough,
-                mdCommands.hr,
-                mdCommands.divider,
-                mdCommands.link,
-                mdCommands.quote,
-                mdCommands.code,
-                mdCommands.codeBlock,
-                mdCommands.divider,
-                mdCommands.unorderedListCommand,
-                mdCommands.orderedListCommand,
-                mdCommands.checkedListCommand,
-                mdCommands.divider,
-                mdCommands.help,
-              ]}
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={handleImageUpload}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => fileInputRef.current.click()}
-            >
-              <ImagePlus className="mr-1.5 h-4 w-4" />
-              Image
-            </Button>
-            <ExportNote note={{ content: markdown, title }} />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="mr-1.5 h-4 w-4" />
-              Delete
-            </Button>
-            <Button size="sm" onClick={onSave} className="shadow-sm">
-              <Save className="mr-1.5 h-4 w-4" />
-              Save
-            </Button>
-          </div>
         </div>
-
-        <div className="flex flex-[0_0_40%] flex-col gap-6">
-          <Preview markdown={markdown} />
+        <div className="flex items-center gap-4 text-[11px] font-medium text-on-surface-variant">
+          <SaveStatus status={saveStatus} />
+          <span className="opacity-30">|</span>
+          <span>{wordCount.toLocaleString()} WORDS</span>
         </div>
       </div>
-    </main>
+
+      {/* Body */}
+      {isLocked ? (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <form
+            onSubmit={handleInlineUnlock}
+            className="flex w-full max-w-md flex-col items-center gap-5 rounded-xl bg-surface-container-low p-10 text-center"
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
+              <Icon name="lock" className="text-2xl text-vault-primary" />
+            </div>
+            <div className="space-y-1">
+              {titleCache[currentId] && (
+                <p className="text-xs font-semibold uppercase tracking-widest text-vault-primary">
+                  {titleCache[currentId]}
+                </p>
+              )}
+              <h3 className="text-lg font-semibold tracking-tight text-on-surface">
+                {unlockError ? "Wrong passphrase" : "This note is locked"}
+              </h3>
+              <p className="text-sm text-on-surface-variant">
+                {unlockError
+                  ? "That passphrase didn't unlock this note. Try again."
+                  : "Enter your passphrase to continue where you left off."}
+              </p>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={inlinePassphrase}
+              onChange={(e) => setInlinePassphrase(e.target.value)}
+              placeholder="Passphrase"
+              className={cn(
+                "w-full rounded-lg border bg-surface-container px-4 py-2.5 text-sm text-on-surface placeholder-outline transition-all focus:outline-none",
+                unlockError
+                  ? "border-error/60 focus:border-error"
+                  : "border-outline-variant/30 focus:border-vault-primary/60",
+              )}
+            />
+            <button
+              type="submit"
+              disabled={!inlinePassphrase}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-vault-primary px-5 py-2.5 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Icon name="lock_open" className="text-sm" />
+              Unlock note
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="flex items-center gap-1.5 text-xs font-medium text-outline transition-colors hover:text-error"
+            >
+              <Icon name="delete" className="text-sm" />
+              Delete without unlocking
+            </button>
+          </form>
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          <div
+            className={cn(
+              "flex flex-col overflow-y-auto px-12 py-12",
+              showPreview ? "flex-1 border-r border-outline-variant/10" : "w-full",
+            )}
+          >
+            <div className="mx-auto w-full max-w-3xl">
+              <input
+                type="text"
+                placeholder="Untitled"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="mb-8 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0"
+              />
+              <div
+                data-color-mode={theme}
+                className="markdown-editor text-lg leading-relaxed"
+              >
+                <MDEditor
+                  value={markdown}
+                  onChange={(val) => setMarkdown(val || "")}
+                  height={520}
+                  preview="edit"
+                  hideToolbar={false}
+                  visibleDragbar={false}
+                  extraCommands={[]}
+                  previewOptions={{ components: { img: IdbImage } }}
+                  commands={[
+                    mdCommands.bold,
+                    mdCommands.italic,
+                    mdCommands.strikethrough,
+                    mdCommands.hr,
+                    mdCommands.divider,
+                    mdCommands.link,
+                    mdCommands.quote,
+                    mdCommands.code,
+                    mdCommands.codeBlock,
+                    mdCommands.divider,
+                    mdCommands.unorderedListCommand,
+                    mdCommands.orderedListCommand,
+                    mdCommands.checkedListCommand,
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+          {showPreview && (
+            <div className="flex w-[42%] flex-col overflow-hidden bg-surface-container-low p-6">
+              <Preview markdown={markdown} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* FAB — save */}
+      {!isLocked && (
+        <button
+          onClick={onSave}
+          title="Save to vault"
+          className="absolute bottom-8 right-8 flex h-14 w-14 items-center justify-center rounded-full bg-vault-primary text-on-primary-fixed shadow-2xl shadow-vault-primary/20 transition-all hover:scale-105 active:scale-95"
+        >
+          <Icon name="save" className="text-3xl" fill />
+        </button>
+      )}
+    </section>
   );
 };
 
