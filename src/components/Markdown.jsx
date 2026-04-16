@@ -84,6 +84,7 @@ const Markdown = ({
   onLockRef,
   onIsUnlockedRef,
   vaultMode = false,
+  isComposingNew = false,
 }) => {
   const fileInputRef = useRef(null);
   const [showPreview, setShowPreview] = useState(true);
@@ -306,6 +307,8 @@ const Markdown = ({
   const suppressPassphraseModal =
     modal?.type === "passphrase" && modal.mode === "decrypt" && isLocked;
 
+  const hasNoteOpen = !!currentId || isComposingNew;
+
   return (
     <section className="relative flex flex-1 flex-col bg-surface">
       {modal?.type === "passphrase" && !suppressPassphraseModal && (
@@ -325,48 +328,61 @@ const Markdown = ({
         />
       )}
 
+      {!hasNoteOpen ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <Icon name="edit_note" className="text-5xl text-outline-variant/40" />
+          <p className="text-sm text-on-surface-variant/60">
+            Select a note or create a new one to get started
+          </p>
+        </div>
+      ) : (
+      <>
       {/* Toolbar / status bar */}
       <div className="flex h-12 items-center justify-between border-b border-outline-variant/10 px-6">
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            title="Insert image"
-            className="rounded p-1.5 text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
-          >
-            <Icon name="image" className="text-xl" />
-          </button>
-          <div className="mx-1 h-4 w-px bg-outline-variant/30" />
-          <ExportNote note={{ content: markdown, title }} />
-          {currentId && !isLocked && (
+          {!isLocked && (
             <>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Insert image"
+                className="rounded p-1.5 text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
+              >
+                <Icon name="image" className="text-xl" />
+              </button>
+              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+              <ExportNote note={{ content: markdown, title }} />
+              {currentId && (
+                <>
+                  <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+                  <button
+                    onClick={handleDelete}
+                    title="Delete note (requires passphrase)"
+                    className="rounded p-1.5 text-outline transition-all hover:bg-error-container/30 hover:text-error"
+                  >
+                    <Icon name="delete" className="text-xl" />
+                  </button>
+                </>
+              )}
               <div className="mx-1 h-4 w-px bg-outline-variant/30" />
               <button
-                onClick={handleDelete}
-                title="Delete note (requires passphrase)"
-                className="rounded p-1.5 text-outline transition-all hover:bg-error-container/30 hover:text-error"
+                onClick={() => setShowPreview((v) => !v)}
+                title={showPreview ? "Hide preview" : "Show preview"}
+                className={cn(
+                  "rounded p-1.5 transition-all hover:bg-surface-container-high",
+                  showPreview ? "text-vault-primary" : "text-outline hover:text-on-surface",
+                )}
               >
-                <Icon name="delete" className="text-xl" />
+                <Icon name="visibility" className="text-xl" />
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleImageUpload}
+              />
             </>
           )}
-          <div className="mx-1 h-4 w-px bg-outline-variant/30" />
-          <button
-            onClick={() => setShowPreview((v) => !v)}
-            title={showPreview ? "Hide preview" : "Show preview"}
-            className={cn(
-              "rounded p-1.5 transition-all hover:bg-surface-container-high",
-              showPreview ? "text-vault-primary" : "text-outline hover:text-on-surface",
-            )}
-          >
-            <Icon name="visibility" className="text-xl" />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={handleImageUpload}
-          />
         </div>
         <div className="flex items-center gap-4 text-[11px] font-medium text-on-surface-variant">
           <SaveStatus status={saveStatus} />
@@ -499,6 +515,8 @@ const Markdown = ({
         >
           <Icon name="save" className="text-3xl" fill />
         </button>
+      )}
+      </>
       )}
     </section>
   );

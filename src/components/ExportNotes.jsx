@@ -197,11 +197,11 @@ const ExportNote = ({ note }) => {
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={exportAsMD}>
+      <Button variant="ghost" size="sm" onClick={exportAsMD} disabled={!note.content?.trim()}>
         <FileText className="mr-1.5 h-4 w-4" />
         .MD
       </Button>
-      <Button variant="ghost" size="sm" onClick={exportAsPDF}>
+      <Button variant="ghost" size="sm" onClick={exportAsPDF} disabled={!note.content?.trim()}>
         <FileDown className="mr-1.5 h-4 w-4" />
         PDF
       </Button>

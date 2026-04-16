@@ -137,6 +137,7 @@ const App = () => {
           onLockRef={lockRef}
           onIsUnlockedRef={isUnlockedRef}
           vaultMode={activeSection === "vault"}
+          isComposingNew={isComposingNew}
         />
       </main>
       <Toaster
