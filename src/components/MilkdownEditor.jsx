@@ -1,0 +1,141 @@
+import { useCallback, useEffect, useRef } from "react";
+import { Crepe, CrepeFeature } from "@milkdown/crepe";
+import { MilkdownProvider, Milkdown, useEditor, useInstance } from "@milkdown/react";
+import { replaceAll } from "@milkdown/kit/utils";
+import { v4 as uuid4 } from "uuid";
+import { saveImage, getImage } from "@/js/db";
+
+import "@milkdown/crepe/theme/common/style.css";
+import "@milkdown/crepe/theme/frame-dark.css";
+
+const EditorInner = ({ markdown, onChange }) => {
+  const onChangeRef = useRef(onChange);
+  const externalMdRef = useRef(markdown);
+  const blobCache = useRef(new Map());
+  onChangeRef.current = onChange;
+
+  const resolveIdbImages = useCallback((root) => {
+    if (!root) return;
+    root.querySelectorAll("img").forEach(async (img) => {
+      const src = img.getAttribute("src");
+      if (!src?.startsWith("idb://") || img.dataset.idbResolved) return;
+      const uuid = src.slice(6);
+      if (blobCache.current.has(uuid)) {
+        img.src = blobCache.current.get(uuid);
+        img.dataset.idbResolved = "true";
+        return;
+      }
+      try {
+        const record = await getImage(uuid);
+        if (record?.blob) {
+          const url = URL.createObjectURL(record.blob);
+          blobCache.current.set(uuid, url);
+          img.src = url;
+          img.dataset.idbResolved = "true";
+        }
+      } catch { /* not found */ }
+    });
+  }, []);
+
+  useEditor((root) => {
+    const crepe = new Crepe({
+      root,
+      defaultValue: externalMdRef.current || "",
+      features: {
+        [CrepeFeature.Toolbar]: true,
+        [CrepeFeature.ImageBlock]: true,
+        [CrepeFeature.BlockEdit]: true,
+        [CrepeFeature.Placeholder]: true,
+        [CrepeFeature.CodeMirror]: true,
+        [CrepeFeature.ListItem]: true,
+        [CrepeFeature.LinkTooltip]: true,
+        [CrepeFeature.Table]: true,
+        [CrepeFeature.Cursor]: true,
+        [CrepeFeature.Latex]: false,
+      },
+      featureConfigs: {
+        [CrepeFeature.Placeholder]: {
+          text: "Start writing your note...",
+        },
+        [CrepeFeature.ImageBlock]: {
+          onUpload: async (file) => {
+            const id = uuid4();
+            await saveImage({ id, blob: file });
+            return `idb://${id}`;
+          },
+        },
+      },
+    });
+
+    crepe.on((listener) => {
+      listener.markdownUpdated((_ctx, md, prev) => {
+        if (md !== prev) {
+          externalMdRef.current = md;
+          onChangeRef.current(md);
+        }
+      });
+    });
+
+    return crepe;
+  }, []);
+
+  // Get the editor instance for programmatic updates
+  const [loading, getInstance] = useInstance();
+
+  // Sync external markdown changes (note switch, import)
+  useEffect(() => {
+    if (loading) return;
+    if (markdown === externalMdRef.current) return;
+    externalMdRef.current = markdown;
+    const editor = getInstance();
+    if (editor) {
+      try {
+        editor.action(replaceAll(markdown || ""));
+      } catch {
+        // Editor not ready
+      }
+    }
+  }, [markdown, loading, getInstance]);
+
+  // Resolve idb:// images after mount and on DOM changes
+  useEffect(() => {
+    if (loading) return;
+    const container = document.querySelector(".milkdown-wrapper .milkdown");
+    if (!container) return;
+
+    resolveIdbImages(container);
+
+    const observer = new MutationObserver(() => resolveIdbImages(container));
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["src"],
+    });
+
+    return () => observer.disconnect();
+  }, [loading, resolveIdbImages]);
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    const cache = blobCache.current;
+    return () => {
+      cache.forEach((url) => URL.revokeObjectURL(url));
+      cache.clear();
+    };
+  }, []);
+
+  return <Milkdown />;
+};
+
+const MilkdownEditor = ({ markdown, onChange }) => {
+  return (
+    <MilkdownProvider>
+      <div className="milkdown-wrapper">
+        <EditorInner markdown={markdown} onChange={onChange} />
+      </div>
+    </MilkdownProvider>
+  );
+};
+
+export default MilkdownEditor;

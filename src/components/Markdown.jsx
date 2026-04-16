@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import MDEditor, { commands as mdCommands } from "@uiw/react-md-editor";
 import toast from "react-hot-toast";
-import { v4 as uuid4 } from "uuid";
-import IdbImage from "./IdbImage.jsx";
+import MilkdownEditor from "./MilkdownEditor.jsx";
 import Preview from "./Preview.jsx";
 import ExportNote from "./ExportNotes.jsx";
 import PassphraseModal from "./PassPhraseModal.jsx";
 import DeleteModal from "./DeleteModal.jsx";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/lib/theme.jsx";
 import {
-  saveImage,
   getNote,
   deleteNote as dbDeleteNote,
   deleteImage,
@@ -18,10 +14,11 @@ import {
 } from "../js/db";
 import { deriveKey, decryptContent } from "../js/crypto";
 
-const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
 import { useModalQueue } from "@/hooks/useModalQueue";
 import { useNoteSession } from "@/hooks/useNoteSession";
 import { useVault } from "@/lib/vault";
+
+const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
 
 const Icon = ({ name, className, fill }) => (
   <span
@@ -86,9 +83,8 @@ const Markdown = ({
   vaultMode = false,
   isComposingNew = false,
 }) => {
-  const fileInputRef = useRef(null);
-  const [showPreview, setShowPreview] = useState(true);
-  const { theme } = useTheme();
+  const editorContainerRef = useRef(null);
+  const [showPreview, setShowPreview] = useState(false);
   const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
 
   const { modal, open: openModal } = useModalQueue();
@@ -228,22 +224,6 @@ const Markdown = ({
     }
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = "";
-    try {
-      const id = uuid4();
-      await saveImage({ id, blob: file });
-      const altText = file.name.replace(/\.[^.]+$/, "");
-      const snippet = `\n![${altText}](idb://${id})\n`;
-      setMarkdown((prev) => (prev || "") + snippet);
-      toast.success("Image attached!");
-    } catch (err) {
-      toast.error("Failed to attach image: " + err.message);
-    }
-  };
-
   const isLocked = saveStatus === "locked" && !!currentId && !isUnlocked();
 
   // A locked note older than 30 days can be deleted without a passphrase.
@@ -342,14 +322,6 @@ const Markdown = ({
         <div className="flex items-center gap-1">
           {!isLocked && (
             <>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                title="Insert image"
-                className="rounded p-1.5 text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
-              >
-                <Icon name="image" className="text-xl" />
-              </button>
-              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
               <ExportNote note={{ content: markdown, title }} />
               {currentId && (
                 <>
@@ -374,13 +346,6 @@ const Markdown = ({
               >
                 <Icon name="visibility" className="text-xl" />
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={handleImageUpload}
-              />
             </>
           )}
         </div>
@@ -466,34 +431,10 @@ const Markdown = ({
                 onChange={(e) => setTitle(e.target.value)}
                 className="mb-8 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0"
               />
-              <div
-                data-color-mode={theme}
-                className="markdown-editor text-lg leading-relaxed"
-              >
-                <MDEditor
-                  value={markdown}
+              <div ref={editorContainerRef} className="milkdown-host">
+                <MilkdownEditor
+                  markdown={markdown}
                   onChange={(val) => setMarkdown(val || "")}
-                  height={520}
-                  preview="edit"
-                  hideToolbar={false}
-                  visibleDragbar={false}
-                  extraCommands={[]}
-                  previewOptions={{ components: { img: IdbImage } }}
-                  commands={[
-                    mdCommands.bold,
-                    mdCommands.italic,
-                    mdCommands.strikethrough,
-                    mdCommands.hr,
-                    mdCommands.divider,
-                    mdCommands.link,
-                    mdCommands.quote,
-                    mdCommands.code,
-                    mdCommands.codeBlock,
-                    mdCommands.divider,
-                    mdCommands.unorderedListCommand,
-                    mdCommands.orderedListCommand,
-                    mdCommands.checkedListCommand,
-                  ]}
                 />
               </div>
             </div>

@@ -147,33 +147,59 @@
   }
 }
 
-/* MDEditor theming — surface-only tweaks so we don't fight its built-in
-   syntax-highlight layer (which renders the typed text). */
-.w-md-editor {
-  background: var(--v-surface) !important;
-  box-shadow: none !important;
-  border: none !important;
+/* Milkdown Crepe — ensure the wrapper fills available space */
+.milkdown-host {
+  width: 100%;
 }
-.w-md-editor-toolbar {
-  background: var(--v-surface-container-low) !important;
-  border-bottom: 1px solid var(--v-outline-variant) !important;
-  border-radius: 0 !important;
-  padding: 6px 8px !important;
+
+.milkdown-wrapper {
+  width: 100%;
 }
-.w-md-editor-toolbar ul > li > button {
-  color: var(--v-outline) !important;
+
+.milkdown-wrapper .milkdown {
+  background: transparent;
 }
-.w-md-editor-toolbar ul > li > button:hover {
-  background: var(--v-surface-container-high) !important;
-  color: var(--v-on-surface) !important;
+
+/* Milkdown Crepe — map to app palette */
+.milkdown-host .milkdown {
+  --crepe-color-background: var(--v-surface);
+  --crepe-color-on-background: var(--v-on-surface);
+  --crepe-color-surface: var(--v-surface-container-low);
+  --crepe-color-surface-low: var(--v-surface-container);
+  --crepe-color-on-surface: var(--v-on-surface);
+  --crepe-color-on-surface-variant: var(--v-on-surface-variant);
+  --crepe-color-outline: var(--v-outline);
+  --crepe-color-primary: var(--v-primary);
+  --crepe-color-secondary: var(--v-surface-container-high);
+  --crepe-color-on-secondary: var(--v-on-surface);
+  --crepe-color-inverse: var(--v-on-surface);
+  --crepe-color-on-inverse: var(--v-surface);
+  --crepe-color-inline-code: var(--v-tertiary);
+  --crepe-color-error: hsl(var(--destructive));
+  --crepe-color-hover: var(--v-surface-container-high);
+  --crepe-color-selected: var(--v-surface-container-highest);
+  --crepe-color-inline-area: var(--v-surface-container);
+
+  --crepe-font-title: "Inter", "Segoe UI", sans-serif;
+  --crepe-font-default: "Inter", "Segoe UI", sans-serif;
+  --crepe-font-code: "Fira Code", "SF Mono", Menlo, monospace;
+
+  --crepe-shadow-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.15),
+    0px 1px 2px 0px rgba(0, 0, 0, 0.3);
+  --crepe-shadow-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.15),
+    0px 1px 2px 0px rgba(0, 0, 0, 0.3);
 }
-.w-md-editor-toolbar-divider {
-  background: var(--v-outline-variant) !important;
+
+.milkdown-host .milkdown .editor {
+  padding: 0;
+  min-height: 400px;
 }
-.wmde-markdown {
-  background: transparent !important;
-  font-family: "Inter", sans-serif !important;
+
+.milkdown-host .milkdown .editor:focus-visible {
+  outline: none;
 }
-.wmde-markdown a {
-  color: var(--v-primary) !important;
+
+/* Make milkdown links use the vault primary color */
+.milkdown-host .milkdown a {
+  color: var(--v-primary);
 }
