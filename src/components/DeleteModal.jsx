@@ -1,7 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -9,10 +9,53 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const DeleteModal = ({ onConfirm, onCancel }) => {
+const DeleteModal = ({
+  onConfirm,
+  onCancel,
+  requirePassphrase = false,
+  canForceDelete = false,
+  verify,
+}) => {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!requirePassphrase) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [requirePassphrase]);
+
+  const handleSubmit = async () => {
+    if (!requirePassphrase) {
+      onConfirm({ kind: "confirm" });
+      return;
+    }
+    if (!value.trim() || verifying) return;
+    setError(null);
+    setVerifying(true);
+    try {
+      await verify(value);
+      onConfirm({ kind: "passphrase", passphrase: value });
+    } catch {
+      setError("Wrong passphrase. Try again.");
+      setValue("");
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleForceDelete = () => {
+    if (!canForceDelete || verifying) return;
+    onConfirm({ kind: "force" });
+  };
+
   return (
     <AlertDialog open onOpenChange={(open) => !open && onCancel()}>
       <AlertDialogContent>
@@ -23,18 +66,56 @@ const DeleteModal = ({ onConfirm, onCancel }) => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this note?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action is permanent and cannot be undone.
+              {requirePassphrase
+                ? "Enter the note's passphrase to confirm deletion. This action is permanent."
+                : "This action is permanent and cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
         </div>
+
+        {requirePassphrase && (
+          <div className="space-y-2">
+            <Input
+              ref={inputRef}
+              type="password"
+              placeholder="Passphrase…"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              disabled={verifying}
+              className={cn(
+                "bg-background",
+                error && "border-destructive focus-visible:ring-destructive",
+              )}
+            />
+            {error && (
+              <p className="text-xs text-destructive">{error}</p>
+            )}
+            {canForceDelete && (
+              <button
+                type="button"
+                onClick={handleForceDelete}
+                disabled={verifying}
+                className="text-xs font-medium text-outline underline-offset-2 hover:text-destructive hover:underline disabled:opacity-50"
+                title="This note is older than 30 days — can be deleted without a passphrase"
+              >
+                Delete without passphrase
+              </button>
+            )}
+          </div>
+        )}
+
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className={cn(buttonVariants({ variant: "destructive" }))}
+          <AlertDialogCancel onClick={onCancel} disabled={verifying}>
+            Cancel
+          </AlertDialogCancel>
+          <Button
+            variant="destructive"
+            onClick={handleSubmit}
+            disabled={verifying || (requirePassphrase && !value.trim())}
           >
-            Delete
-          </AlertDialogAction>
+            {verifying ? "Verifying…" : "Delete"}
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

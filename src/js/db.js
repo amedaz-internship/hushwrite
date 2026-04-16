@@ -5,6 +5,11 @@ const DB_VERSION = 2;
 const NOTES_STORE = "notes";
 const IMAGES_STORE = "images";
 
+// Reserved note id used to persist vault metadata (salt + passphrase
+// verifier). Stored in the notes store so no schema migration is needed;
+// filtered out everywhere user-facing notes are listed.
+export const VAULT_META_ID = "__vault_meta__";
+
 export const initDB = async () => {
   return openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
@@ -27,12 +32,23 @@ export const saveNote = async (note) => {
 
 export const getAllNotes = async () => {
   const db = await initDB();
-  return db.getAll(NOTES_STORE);
+  const all = await db.getAll(NOTES_STORE);
+  return all.filter((n) => n.id !== VAULT_META_ID);
 };
 
 export const getNote = async (id) => {
   const db = await initDB();
   return db.get(NOTES_STORE, id);
+};
+
+export const getVaultMeta = async () => {
+  const db = await initDB();
+  return db.get(NOTES_STORE, VAULT_META_ID);
+};
+
+export const saveVaultMeta = async (meta) => {
+  const db = await initDB();
+  await db.put(NOTES_STORE, { ...meta, id: VAULT_META_ID });
 };
 
 export const deleteNote = async (id) => {

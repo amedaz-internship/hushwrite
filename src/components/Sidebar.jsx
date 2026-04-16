@@ -14,7 +14,8 @@ const Sidebar = ({
 }) => {
   const sections = [
     { id: "notes", label: "Notes", icon: "description" },
-    { id: "search", label: "Search", icon: "search", action: onFocusSearch },
+    { id: "search", label: "Search", icon: "search", action: onFocusSearch, stateless: true },
+    { id: "vault", label: "Vault", icon: "enhanced_encryption" },
   ];
 
   return (
@@ -50,7 +51,7 @@ const Sidebar = ({
             <button
               key={s.id}
               onClick={() => {
-                onSectionChange?.(s.id);
+                if (!s.stateless) onSectionChange?.(s.id);
                 s.action?.();
               }}
               className={cn(

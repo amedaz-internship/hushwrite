@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import TopNav from "./components/TopNav";
-import Sidebar from "./components/Sidebar";
 import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
 import { getAllNotes } from "./js/db";
+import { VaultProvider } from "./lib/vault";
 
 const App = () => {
   const [markdown, setMarkdown] = useState("");
@@ -12,6 +12,15 @@ const App = () => {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState([]);
   const [selectedNote, setSelectedNote] = useState(null);
+  const [activeSection, setActiveSection] = useState("notes");
+  const [isComposingNew, setIsComposingNew] = useState(false);
+
+  // Once a brand-new note gets persisted (currentId flips from null to a
+  // real id) or the user picks a different note, the synthetic draft entry
+  // in the sidebar is no longer needed.
+  useEffect(() => {
+    if (currentId) setIsComposingNew(false);
+  }, [currentId]);
   // Session-only cache of plaintext titles keyed by note id. Populated
   // when a note is unlocked or saved so the sidebar can show real titles
   // instead of "Encrypted note". Cleared on reload — never persisted.
@@ -21,7 +30,6 @@ const App = () => {
   // session actions without prop-drilling a shared reducer.
   const lockRef = useRef(() => {});
   const isUnlockedRef = useRef(() => false);
-  const searchInputRef = useRef(null);
   // Re-render on status changes so TopNav reflects lock state.
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -61,6 +69,7 @@ const App = () => {
     setTitle("");
     setCurrentId(null);
     setSelectedNote(null);
+    setIsComposingNew(true);
     toast.success("New note created");
   };
 
@@ -77,7 +86,13 @@ const App = () => {
     toast("Session locked", { icon: "🔒" });
   };
 
+  const handleNewNoteInVault = () => {
+    setActiveSection("vault");
+    handleNewNote();
+  };
+
   return (
+    <VaultProvider>
     <div className="flex h-screen flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
       <TopNav
         isUnlocked={isUnlockedRef.current?.() ?? false}
@@ -85,21 +100,28 @@ const App = () => {
         notesCount={notes.length}
       />
       <main className="flex flex-1 overflow-hidden">
-        <Sidebar
-          onNewNote={handleNewNote}
-          onFocusSearch={() => {
-            searchInputRef.current?.focus();
-            searchInputRef.current?.select();
-          }}
-        />
         <NoteList
           notes={notes}
           currentId={currentId}
           currentTitle={title}
           titleCache={titleCache}
-          onSelectNote={setSelectedNote}
+          onSelectNote={(n) => {
+            setIsComposingNew(false);
+            setSelectedNote(n);
+          }}
           onImportNote={handleImportNote}
-          searchInputRef={searchInputRef}
+          onNotesChanged={(next) => setNotes(next)}
+          onNewNote={activeSection === "vault" ? handleNewNoteInVault : handleNewNote}
+          activeSection={activeSection}
+          onSectionChange={(id) => {
+            setActiveSection(id);
+            setSelectedNote(null);
+            setCurrentId(null);
+            setMarkdown("");
+            setTitle("");
+            setIsComposingNew(false);
+          }}
+          isComposingNew={isComposingNew}
         />
         <Markdown
           selectedNote={selectedNote}
@@ -114,6 +136,7 @@ const App = () => {
           titleCache={titleCache}
           onLockRef={lockRef}
           onIsUnlockedRef={isUnlockedRef}
+          vaultMode={activeSection === "vault"}
         />
       </main>
       <Toaster
@@ -141,6 +164,7 @@ const App = () => {
         }}
       />
     </div>
+    </VaultProvider>
   );
 };
 

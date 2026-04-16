@@ -14,6 +14,7 @@ import {
   decryptContent,
   generateSalt,
 } from "../js/crypto";
+import { rehydrateInlineImages } from "../js/hwrite";
 
 // Tier 1 timings.
 const AUTOSAVE_DEBOUNCE_MS = 1500;
@@ -38,7 +39,9 @@ export function useNoteSession({
   setCurrentId,
   setNotes,
   askPassphrase,
+  vault,
 }) {
+  const vaultEnabled = !!(vault && vault.key && vault.salt);
   const sessionKeyRef = useRef(null);
   const sessionSaltRef = useRef(null);
   const lastSavedRef = useRef({ markdown: "", title: "" });
@@ -88,14 +91,21 @@ export function useNoteSession({
         }
 
         const id = currentId || uuid4();
+        // Preserve an existing note's vault flag; for new notes, inherit
+        // from the active vault mode so the note shows up inside the vault.
+        const vaultFlag = existingNote
+          ? existingNote.vault === true
+          : vaultEnabled;
         await saveNote({
           id,
           ciphertext,
           iv,
           salt,
+          title: trimmedTitle,
           titleCiphertext,
           titleIv,
           imageIds,
+          vault: vaultFlag,
           createdAt: existingNote?.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
@@ -113,7 +123,7 @@ export function useNoteSession({
         isSavingRef.current = false;
       }
     },
-    [markdown, title, currentId, setCurrentId, setNotes],
+    [markdown, title, currentId, setCurrentId, setNotes, vaultEnabled],
   );
 
   const autoSave = useCallback(async () => {
@@ -202,9 +212,18 @@ export function useNoteSession({
 
   const unlockExisting = useCallback(
     async (selectedNote) => {
-      const pw = await askPassphrase("decrypt");
-      const salt = toBytes(selectedNote.salt);
-      const key = await deriveKey(pw, salt);
+      let salt;
+      let key;
+      if (selectedNote.vault === true && vaultEnabled) {
+        // Vault note + unlocked vault: reuse the cached vault key directly,
+        // no per-note prompt needed.
+        salt = toBytes(vault.salt);
+        key = vault.key;
+      } else {
+        const pw = await askPassphrase("decrypt");
+        salt = toBytes(selectedNote.salt);
+        key = await deriveKey(pw, salt);
+      }
       const decrypted = await decryptContent(
         toBytes(selectedNote.ciphertext),
         key,
@@ -220,20 +239,27 @@ export function useNoteSession({
         );
       }
 
+      // Imported-encrypted notes can carry inline data: image URIs. Lift
+      // them into the images store on first open so the editor stays
+      // responsive; the dirty diff that results triggers an autoSave which
+      // re-encrypts the lighter form so future unlocks skip this work.
+      const { markdown: rehydrated, changed: rehydratedChanged } =
+        await rehydrateInlineImages(decrypted);
+
       sessionKeyRef.current = key;
       sessionSaltRef.current = salt;
       lastSavedRef.current = {
-        markdown: decrypted,
+        markdown: rehydratedChanged ? decrypted : rehydrated,
         title: decryptedTitle,
       };
 
-      setMarkdown(decrypted);
+      setMarkdown(rehydrated);
       setCurrentId(selectedNote.id);
       setTitle(decryptedTitle);
-      setSaveStatus("saved");
+      setSaveStatus(rehydratedChanged ? "dirty" : "saved");
       setUnlockError(null);
     },
-    [askPassphrase, setMarkdown, setCurrentId, setTitle],
+    [askPassphrase, setMarkdown, setCurrentId, setTitle, vaultEnabled, vault],
   );
 
   // Re-prompt for the passphrase on the currently-selected (locked) note and
@@ -306,9 +332,17 @@ export function useNoteSession({
       await persistNote(sessionKeyRef.current, sessionSaltRef.current);
       return "saved";
     }
-    // New notes (no id yet) always prompt for a passphrase so each note
-    // can have its own, independent of any other note that happens to be
-    // unlocked in the current session.
+    // New notes inside an unlocked vault skip the prompt: every vault note
+    // shares the same key+salt, so one unlock covers every save.
+    if (!currentId && vaultEnabled) {
+      await persistNote(vault.key, vault.salt);
+      sessionKeyRef.current = vault.key;
+      sessionSaltRef.current = vault.salt;
+      return "encrypted";
+    }
+    // New notes outside the vault always prompt for a passphrase so each
+    // note can have its own, independent of any other note that happens
+    // to be unlocked in the current session.
     const pw = await askPassphrase("encrypt");
     const salt = generateSalt();
     const key = await deriveKey(pw, salt);
@@ -316,15 +350,32 @@ export function useNoteSession({
     sessionKeyRef.current = key;
     sessionSaltRef.current = salt;
     return "encrypted";
-  }, [persistNote, askPassphrase, isUnlocked, currentId]);
+  }, [persistNote, askPassphrase, isUnlocked, currentId, vaultEnabled, vault]);
 
 
-  const deleteCurrent = useCallback(async () => {
+  // Shared cleanup after either delete path succeeds. Drops the in-memory
+  // session key, clears the editor, and refreshes the sidebar list.
+  const finalizeDelete = useCallback(async () => {
+    sessionKeyRef.current = null;
+    sessionSaltRef.current = null;
+    lastSavedRef.current = { markdown: "", title: "" };
+
+    setMarkdown("");
+    setTitle("");
+    setCurrentId(null);
+    setNotes(await getAllNotes());
+    setSaveStatus("idle");
+  }, [setMarkdown, setTitle, setCurrentId, setNotes]);
+
+  // Original behavior: prompt for the note's passphrase and verify it by
+  // attempting to decrypt before destroying the record. Used for normal
+  // (non-vault) notes.
+  const deleteCurrent = useCallback(async (passphrase) => {
     if (!currentId) throw new Error("No note selected!");
     const note = await getNote(currentId);
     if (!note) throw new Error("Note not found");
 
-    const pw = await askPassphrase("decrypt");
+    const pw = passphrase ?? (await askPassphrase("decrypt"));
     const verifyKey = await deriveKey(pw, toBytes(note.salt));
     await decryptContent(
       toBytes(note.ciphertext),
@@ -336,24 +387,40 @@ export function useNoteSession({
       await Promise.all(note.imageIds.map((id) => deleteImage(id)));
     }
     await dbDeleteNote(currentId);
+    await finalizeDelete();
+  }, [currentId, askPassphrase, finalizeDelete]);
 
-    sessionKeyRef.current = null;
-    sessionSaltRef.current = null;
-    lastSavedRef.current = { markdown: "", title: "" };
+  // Age-gated delete: drop the record without a passphrase. Caller is
+  // responsible for enforcing the 30-day rule — this helper trusts them.
+  const forceDeleteCurrent = useCallback(async () => {
+    if (!currentId) throw new Error("No note selected!");
+    const note = await getNote(currentId);
+    if (!note) throw new Error("Note not found");
+    if (note.imageIds?.length) {
+      await Promise.all(note.imageIds.map((id) => deleteImage(id)));
+    }
+    await dbDeleteNote(currentId);
+    await finalizeDelete();
+  }, [currentId, finalizeDelete]);
 
-    setMarkdown("");
-    setTitle("");
-    setCurrentId(null);
-    setNotes(await getAllNotes());
-    setSaveStatus("idle");
-  }, [
-    currentId,
-    askPassphrase,
-    setMarkdown,
-    setTitle,
-    setCurrentId,
-    setNotes,
-  ]);
+  // Vault delete: the vault key already authorized access to every note in
+  // the folder, so we skip the per-note passphrase prompt and just remove
+  // the record (and its images).
+  const deleteVaultNote = useCallback(async () => {
+    if (!currentId) throw new Error("No note selected!");
+    if (!vaultEnabled) throw new Error("Vault is locked.");
+    const note = await getNote(currentId);
+    if (!note) throw new Error("Note not found");
+    if (note.vault !== true) {
+      throw new Error("Not a vault note.");
+    }
+
+    if (note.imageIds?.length) {
+      await Promise.all(note.imageIds.map((id) => deleteImage(id)));
+    }
+    await dbDeleteNote(currentId);
+    await finalizeDelete();
+  }, [currentId, vaultEnabled, finalizeDelete]);
 
   
   useEffect(() => {
@@ -377,6 +444,9 @@ export function useNoteSession({
 
 
   useEffect(() => {
+    // Vault mode opts out of idle-lock entirely: one passphrase unlocks the
+    // whole folder and stays unlocked until the user hits "Lock" or reloads.
+    if (vaultEnabled) return;
     const hasContent = markdown.trim() && title.trim();
     const armed = sessionKeyRef.current || (!currentId && hasContent);
     if (!armed) return;
@@ -394,7 +464,7 @@ export function useNoteSession({
       }
     }, IDLE_LOCK_MS);
     return () => clearTimeout(idleTimerRef.current);
-  }, [markdown, title, currentId, lock, unlockCurrent]);
+  }, [markdown, title, currentId, lock, unlockCurrent, vaultEnabled]);
 
    
   useEffect(() => {
@@ -448,5 +518,7 @@ export function useNoteSession({
     switchToNote,
     saveManual,
     deleteCurrent,
+    deleteVaultNote,
+    forceDeleteCurrent,
   };
 }

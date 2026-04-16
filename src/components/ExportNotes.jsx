@@ -86,92 +86,95 @@ const ExportNote = ({ note }) => {
     const withImages = await inlineIdbImages(rawHtml);
     const cleanHtml = DOMPurify.sanitize(withImages);
 
-    // Build a wrapper whose every element carries its own color/background
-    // via inline styles. html2canvas clones the node into a detached
-    // document, so CSS from outside (our dark palette) leaks in unless
-    // every rule here wins on specificity. Inline styles do.
-    //
-    // It must also be visually rendered (not `left: -99999px` or `display: none`)
-    // or html2canvas measures zero-height and the PDF comes out blank.
-    // We paint it at top/left 0 with z-index -1 so it sits under the app
-    // for the brief moment the export takes.
+    // Build the wrapper fully visible (opacity 1) at fixed top/left 0 with
+    // an opaque white background and max z-index. html2canvas needs the
+    // source element actually rendered on-screen to snapshot it correctly;
+    // any off-screen / opacity-0 / z-index:-1 trick produces a blank PDF.
+    // Users see a brief white flash during the capture — acceptable.
     const wrapper = document.createElement("div");
     wrapper.setAttribute(
       "style",
       [
-        "position: absolute",
+        "position: fixed",
         "top: 0",
         "left: 0",
-        "width: 210mm",
-        "padding: 16mm",
+        "right: 0",
+        "bottom: 0",
+        "width: 100vw",
+        "height: 100vh",
+        "overflow: auto",
         "background: #ffffff",
-        "color: #000000",
-        "font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif",
-        "font-size: 11pt",
-        "line-height: 1.6",
-        "z-index: -1",
-        "pointer-events: none",
+        "z-index: 2147483647",
       ].join(";"),
     );
 
-    // Parse the sanitized markdown HTML and force-style every node so no
-    // color or background is inherited from the live app.
-    const container = document.createElement("div");
-    container.innerHTML = cleanHtml;
+    const safeTitle = escapeHtml(note.title || "Untitled");
+    const date = new Date().toLocaleDateString();
 
-    const paint = (el) => {
-      if (!el) return;
-      const tag = el.tagName;
-      const base = "color: #000000 !important; background: transparent;";
-      const styles = {
-        H1: `font-size: 22pt; font-weight: 700; margin: 0 0 12pt; border-bottom: 1px solid #d8d8d8; padding-bottom: 6pt; ${base}`,
-        H2: `font-size: 16pt; font-weight: 600; margin: 18pt 0 8pt; ${base}`,
-        H3: `font-size: 13pt; font-weight: 600; margin: 14pt 0 6pt; ${base}`,
-        H4: `font-size: 12pt; font-weight: 600; margin: 12pt 0 6pt; ${base}`,
-        P: `margin: 0 0 10pt; ${base}`,
-        A: `color: #000000 !important; text-decoration: underline;`,
-        UL: `margin: 0 0 10pt; padding-left: 22pt; ${base}`,
-        OL: `margin: 0 0 10pt; padding-left: 22pt; ${base}`,
-        LI: `margin: 2pt 0; ${base}`,
-        BLOCKQUOTE: `margin: 10pt 0; padding: 6pt 12pt; border-left: 3px solid #000; background: #f5f5f5; color: #000 !important; font-style: italic; page-break-inside: avoid;`,
-        CODE: `font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 10pt; background: #f1f1f3; color: #000 !important; padding: 1pt 4pt; border-radius: 3px;`,
-        PRE: `background: #f1f1f3; color: #000 !important; padding: 10pt 12pt; border-radius: 6px; white-space: pre-wrap; word-break: break-word; page-break-inside: avoid; margin: 10pt 0; font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 10pt;`,
-        IMG: `max-width: 100%; height: auto; display: block; margin: 12pt auto; border-radius: 4px; page-break-inside: avoid;`,
-        HR: `border: none; border-top: 1px solid #d8d8d8; margin: 14pt 0;`,
-        STRONG: `color: #000 !important; font-weight: 700;`,
-        EM: `color: #000 !important; font-style: italic;`,
-        SPAN: `color: #000 !important;`,
-      };
-      if (styles[tag]) {
-        el.setAttribute(
-          "style",
-          (el.getAttribute("style") || "") + ";" + styles[tag],
-        );
-      } else {
-        // Fallback: every element gets black text so nothing inherits grey.
-        el.setAttribute(
-          "style",
-          (el.getAttribute("style") || "") + ";" + base,
-        );
-      }
-      for (const child of el.children) paint(child);
-    };
-    for (const child of container.children) paint(child);
-
-    // Header: title + export date, all black.
-    const titleHtml = note.title
-      ? `<h1 style="font-size:22pt;font-weight:700;margin:0 0 12pt;color:#000 !important;border-bottom:1px solid #d8d8d8;padding-bottom:6pt;">${escapeHtml(note.title)}</h1>`
-      : "";
-    const metaHtml = `<div style="font-size:9pt;color:#555 !important;margin-bottom:16pt;">Exported from Hushwrite · ${new Date().toLocaleDateString()}</div>`;
-
-    wrapper.innerHTML = titleHtml + metaHtml + container.innerHTML;
+    const inner = document.createElement("div");
+    inner.setAttribute(
+      "style",
+      [
+        "width: 794px",
+        "margin: 0 auto",
+        "padding: 48px",
+        "background: #ffffff",
+        "color: #111111",
+        "font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif",
+        "font-size: 14px",
+        "line-height: 1.6",
+      ].join(";"),
+    );
+    inner.innerHTML = `
+      <style>
+        .pdf-root, .pdf-root * { color: #111 !important; background-color: transparent; }
+        .pdf-root h1 { font-size: 28px; font-weight: 700; margin: 0 0 16px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+        .pdf-root h2 { font-size: 22px; font-weight: 600; margin: 24px 0 10px; }
+        .pdf-root h3 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; }
+        .pdf-root h4 { font-size: 16px; font-weight: 600; margin: 16px 0 6px; }
+        .pdf-root p  { margin: 0 0 12px; }
+        .pdf-root ul, .pdf-root ol { margin: 0 0 12px; padding-left: 28px; }
+        .pdf-root li { margin: 4px 0; }
+        .pdf-root blockquote { margin: 14px 0; padding: 8px 14px; border-left: 3px solid #111; background: #f5f5f5 !important; font-style: italic; page-break-inside: avoid; }
+        .pdf-root code { font-family: Menlo, Consolas, monospace; font-size: 13px; background: #f1f1f3 !important; padding: 2px 5px; border-radius: 3px; }
+        .pdf-root pre { background: #f1f1f3 !important; padding: 12px 14px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-family: Menlo, Consolas, monospace; font-size: 13px; margin: 14px 0; page-break-inside: avoid; }
+        .pdf-root pre code { background: transparent !important; padding: 0; }
+        .pdf-root img { max-width: 100%; height: auto; display: block; margin: 14px auto; border-radius: 4px; page-break-inside: avoid; }
+        .pdf-root a { text-decoration: underline; }
+        .pdf-root hr { border: none; border-top: 1px solid #ddd; margin: 18px 0; }
+        .pdf-root .meta { font-size: 11px; color: #555 !important; margin-bottom: 20px; }
+        .pdf-root table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+        .pdf-root th, .pdf-root td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+      </style>
+      <div class="pdf-root">
+        ${note.title ? `<h1>${safeTitle}</h1>` : ""}
+        <div class="meta">Exported from Hushwrite · ${date}</div>
+        ${cleanHtml}
+      </div>
+    `;
+    wrapper.appendChild(inner);
     document.body.appendChild(wrapper);
+
+    // Wait for all images to actually load before rasterizing.
+    await Promise.all(
+      Array.from(inner.querySelectorAll("img")).map((img) =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise((resolve) => {
+              img.onload = img.onerror = resolve;
+            }),
+      ),
+    );
+
+    const safeName = (note.title || "note")
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
 
     try {
       await html2pdf()
-        .from(wrapper)
+        .from(inner)
         .set({
-          filename: `${note.title || "note"}.pdf`,
+          filename: `${safeName}.pdf`,
           margin: [10, 10, 12, 10],
           image: { type: "jpeg", quality: 0.95 },
           html2canvas: {
@@ -184,8 +187,11 @@ const ExportNote = ({ note }) => {
           pagebreak: { mode: ["css", "legacy"] },
         })
         .save();
+    } catch (err) {
+      console.error("[pdf export] failed:", err);
+      toast.error("PDF export failed");
     } finally {
-      document.body.removeChild(wrapper);
+      wrapper.remove();
     }
   };
 

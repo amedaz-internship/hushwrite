@@ -16,8 +16,12 @@ import {
   deleteImage,
   getAllNotes,
 } from "../js/db";
+import { deriveKey, decryptContent } from "../js/crypto";
+
+const toBytes = (v) => (v instanceof Uint8Array ? v : new Uint8Array(v));
 import { useModalQueue } from "@/hooks/useModalQueue";
 import { useNoteSession } from "@/hooks/useNoteSession";
+import { useVault } from "@/lib/vault";
 
 const Icon = ({ name, className, fill }) => (
   <span
@@ -74,18 +78,25 @@ const Markdown = ({
   setCurrentId,
   title,
   setTitle,
+  notes = [],
   setNotes,
   titleCache = {},
   onLockRef,
   onIsUnlockedRef,
+  vaultMode = false,
 }) => {
   const fileInputRef = useRef(null);
   const [showPreview, setShowPreview] = useState(true);
   const { theme } = useTheme();
+  const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
 
-  const { modal, open: openModal, confirm, cancel } = useModalQueue();
+  const { modal, open: openModal } = useModalQueue();
   const askPassphrase = (mode) => openModal({ type: "passphrase", mode });
-  const askDeleteConfirm = () => openModal({ type: "delete" });
+  const askDeleteConfirm = (opts = {}) =>
+    openModal({ type: "delete", ...opts });
+
+  const vaultSession =
+    vaultMode && isVaultUnlocked ? { key: vaultKey, salt: vaultSalt } : null;
 
   const {
     saveStatus,
@@ -96,6 +107,8 @@ const Markdown = ({
     switchToNote,
     saveManual,
     deleteCurrent,
+    deleteVaultNote,
+    forceDeleteCurrent,
   } = useNoteSession({
     markdown,
     title,
@@ -105,6 +118,7 @@ const Markdown = ({
     setCurrentId,
     setNotes,
     askPassphrase,
+    vault: vaultSession,
   });
 
   // Expose lock + unlock-state to TopNav via refs passed from App.
@@ -152,13 +166,27 @@ const Markdown = ({
   const handleDelete = async () => {
     if (!currentId) return toast.error("No note selected!");
     try {
-      await askDeleteConfirm();
-      // When the note is locked, skip the passphrase-verify step and
-      // delete straight from IndexedDB. The confirm dialog is the only
-      // guard — we never decrypt ciphertext we're about to drop.
+      const note = await getNote(currentId);
+      if (!note) throw new Error("Note not found");
+      const ageMs = note.createdAt
+        ? Date.now() - new Date(note.createdAt).getTime()
+        : 0;
+      const canForceDelete = ageMs >= THIRTY_DAYS_MS;
+
       if (!isUnlocked()) {
-        const note = await getNote(currentId);
-        if (note?.imageIds?.length) {
+        // Locked: no passphrase on hand; only the 30-day grace path can
+        // proceed. The dialog shows a confirm-only state with the escape
+        // hatch when eligible.
+        await askDeleteConfirm({
+          requirePassphrase: false,
+          canForceDelete,
+        });
+        if (!canForceDelete) {
+          throw new Error(
+            "Unlock the note to delete it, or wait until it's 30 days old.",
+          );
+        }
+        if (note.imageIds?.length) {
           await Promise.all(note.imageIds.map((id) => deleteImage(id)));
         }
         await dbDeleteNote(currentId);
@@ -166,8 +194,32 @@ const Markdown = ({
         setTitle("");
         setCurrentId(null);
         setNotes(await getAllNotes());
+      } else if (vaultMode) {
+        await askDeleteConfirm({ requirePassphrase: false });
+        await deleteVaultNote();
       } else {
-        await deleteCurrent();
+        // Unlocked non-vault: verify the passphrase inside the dialog so a
+        // wrong entry keeps the prompt open with an error, rather than
+        // bailing out. The 30-day override is offered inline.
+        const result = await askDeleteConfirm({
+          requirePassphrase: true,
+          canForceDelete,
+          verify: async (pw) => {
+            const key = await deriveKey(pw, toBytes(note.salt));
+            await decryptContent(
+              toBytes(note.ciphertext),
+              key,
+              toBytes(note.iv),
+            );
+          },
+        });
+        if (result?.kind === "force") {
+          await forceDeleteCurrent();
+        } else {
+          // Passphrase was already verified inside the modal; deleteCurrent
+          // re-verifies defensively but we can safely pass the passphrase.
+          await deleteCurrent(result.passphrase);
+        }
       }
       toast.success("Note deleted!");
     } catch (err) {
@@ -193,6 +245,15 @@ const Markdown = ({
 
   const isLocked = saveStatus === "locked" && !!currentId && !isUnlocked();
 
+  // A locked note older than 30 days can be deleted without a passphrase.
+  // Younger notes force a passphrase verify to prevent casual wipes.
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const currentNoteMeta = notes.find((n) => n.id === currentId);
+  const noteAgeMs = currentNoteMeta?.createdAt
+    ? Date.now() - new Date(currentNoteMeta.createdAt).getTime()
+    : 0;
+  const canDeleteWithoutUnlock = noteAgeMs >= THIRTY_DAYS_MS;
+
   const [inlinePassphrase, setInlinePassphrase] = useState("");
   const [unlockPending, setUnlockPending] = useState(false);
 
@@ -215,9 +276,9 @@ const Markdown = ({
   // the modal dismisses and doesn't bleed into the next screen.
   useEffect(() => {
     if (!isLocked && modal?.type === "passphrase" && modal.mode === "decrypt") {
-      cancel();
+      modal.cancel?.();
     }
-  }, [isLocked, modal, cancel]);
+  }, [isLocked, modal]);
 
   // Clear the pending flag once the attempt resolves (success → isLocked
   // flips off; failure → unlockError updates). The re-arm effect will then
@@ -236,7 +297,7 @@ const Markdown = ({
     if (!inlinePassphrase) return;
     prevUnlockError.current = unlockError;
     setUnlockPending(true);
-    confirm(inlinePassphrase);
+    modal?.confirm?.(inlinePassphrase);
     setInlinePassphrase("");
   };
 
@@ -250,12 +311,18 @@ const Markdown = ({
       {modal?.type === "passphrase" && !suppressPassphraseModal && (
         <PassphraseModal
           mode={modal.mode}
-          onConfirm={confirm}
-          onCancel={cancel}
+          onConfirm={modal.confirm}
+          onCancel={modal.cancel}
         />
       )}
       {modal?.type === "delete" && (
-        <DeleteModal onConfirm={() => confirm(true)} onCancel={cancel} />
+        <DeleteModal
+          requirePassphrase={modal.requirePassphrase}
+          canForceDelete={modal.canForceDelete}
+          verify={modal.verify}
+          onConfirm={(value) => modal.confirm(value)}
+          onCancel={modal.cancel}
+        />
       )}
 
       {/* Toolbar / status bar */}
@@ -354,14 +421,17 @@ const Markdown = ({
               <Icon name="lock_open" className="text-sm" />
               Unlock note
             </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              className="flex items-center gap-1.5 text-xs font-medium text-outline transition-colors hover:text-error"
-            >
-              <Icon name="delete" className="text-sm" />
-              Delete without unlocking
-            </button>
+            {canDeleteWithoutUnlock && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="flex items-center gap-1.5 text-xs font-medium text-outline transition-colors hover:text-error"
+                title="This note is older than 30 days — can be deleted without a passphrase"
+              >
+                <Icon name="delete" className="text-sm" />
+                Delete without unlocking
+              </button>
+            )}
           </form>
         </div>
       ) : (

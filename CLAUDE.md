@@ -24,40 +24,72 @@ There is no test suite.
 ### Stack
 - **React 19** + **Vite 8**, JSX (no TypeScript; `jsconfig.json` provides the `@/*` → `src/*` alias also defined in [vite.config.js](vite.config.js))
 - **Tailwind CSS 3** + **shadcn/ui** style primitives in [src/components/ui/](src/components/ui/) (Radix-based: dialog, alert-dialog, button, input)
-- **CKEditor 5** (`@ckeditor/ckeditor5-build-classic`) is the rich-text editor
-- **idb** wraps IndexedDB; **vite-plugin-pwa** registers a service worker (autoUpdate, 5 MB Workbox cache cap)
-- **html2pdf.js** + **turndown** + **dompurify** drive note export/sanitization
+- **`@uiw/react-md-editor`** is the markdown editor; **`marked`** renders preview HTML
+- **idb** wraps IndexedDB; **vite-plugin-pwa** registers a service worker (autoUpdate)
+- **html2pdf.js** + **dompurify** drive note export/sanitization
 - **react-hot-toast** for notifications
 
-### Data layer — [src/js/db.js](src/js/db.js)
-Single IndexedDB database `hushwrite-db` (version 2) with two object stores, both keyed by `id`:
-- `notes` — encrypted note records
-- `images` — image blobs referenced from notes (stored separately so editor HTML can hold lightweight references and large binaries don't bloat note records)
-
-All persistence flows through the small helper functions in this file (`saveNote`, `getAllNotes`, `deleteNote`, `saveImage`, `getImage`, `deleteImage`). When changing the schema, bump `DB_VERSION` and extend the `upgrade` callback.
-
 ### Crypto layer — [src/js/crypto.js](src/js/crypto.js)
-Uses the WebCrypto SubtleCrypto API end-to-end:
-- `deriveKey(passphrase, salt)` — PBKDF2-SHA256, 100k iterations → AES-GCM 256-bit key
-- `encryptContent` — random 12-byte IV per encryption; also stores a SHA-256 hash of the plaintext alongside the ciphertext
-- `decryptContent` — re-hashes the decrypted plaintext and compares against the stored hash; mismatch (or any decrypt error) is surfaced as a generic "Note corrupted, tampered, or wrong password" error so wrong-passphrase and tamper cases are indistinguishable
+- `deriveKey(passphrase, salt)` — PBKDF2-SHA256, **600k iterations** → AES-GCM 256-bit key
+- `encryptContent` — random 12-byte IV per encryption; AES-GCM auth tag is the integrity check (no separate plaintext hash is stored)
+- `decryptContent` — any failure (tamper, wrong passphrase) is surfaced as a generic "Note corrupted, tampered, or wrong passphrase" error so the two cases are indistinguishable
 
-A note record therefore needs to persist `{ ciphertext, iv, salt, hash }` together; preserve all four when modifying note save/load paths.
+### Data layer — [src/js/db.js](src/js/db.js)
+Single IndexedDB database `hushwrite-db` (version 2) with two stores keyed by `id`:
+- `notes` — encrypted note records
+- `images` — image blobs referenced from notes by `idb://<uuid>` URIs in the markdown
+
+A note record persists `{ id, ciphertext, iv, salt, title, titleCiphertext, titleIv, imageIds, vault, createdAt, updatedAt }`. **Title is encrypted separately** with its own IV (under the same key); the plaintext `title` field on disk is legacy/best-effort and consumers should prefer the ciphertext pair when available. Preserve all of these when modifying the save/load path.
+
+The reserved id `VAULT_META_ID = "__vault_meta__"` lives in the `notes` store and persists vault metadata (salt + verifier ciphertext). `getAllNotes` filters it out; `getVaultMeta` / `saveVaultMeta` are the dedicated accessors.
+
+When changing the schema, bump `DB_VERSION` and extend the `upgrade` callback.
+
+### Vault — [src/lib/vault.jsx](src/lib/vault.jsx)
+`VaultProvider` (mounted at the App root) supplies a single shared AES-GCM key for "vault notes". Vault metadata stores a salt plus an encrypted verifier string that `unlockVault` decrypts to validate the passphrase. While the vault is unlocked:
+- Notes flagged `vault: true` open without a per-note passphrase prompt
+- Saves in the vault re-use the cached `vaultKey` / `vaultSalt`
+- Idle-locking is **disabled** (one explicit Lock or reload tears down the key)
+
+`useVault()` reads context; treat `vaultKey === null` as "locked".
+
+### Note session — [src/hooks/useNoteSession.js](src/hooks/useNoteSession.js)
+Owns all per-note crypto/lifecycle state via refs. Notable behaviors:
+- Autosave debounce **1500 ms**; idle-lock **3 minutes** (non-vault only)
+- Autosave only runs when there is both a `currentId` AND an in-memory session key — brand-new drafts wait for an explicit `saveManual` so the user can supply a fresh passphrase
+- `lock()` flushes pending edits, then drops the key but **keeps `currentId`** so the sidebar selection survives — re-entering the passphrase resumes the same note
+- `switchToNote()` autosaves the outgoing note, moves the highlight, then prompts for the new note's passphrase; wrong passphrase leaves the user on the locked-card UI rather than reverting
+- `visibilitychange` / `pagehide` lock automatically; `beforeunload` warns when dirty
+- Three delete paths: `deleteCurrent` (verify passphrase), `deleteVaultNote` (vault key already authorized), `forceDeleteCurrent` (caller-enforced age gate, e.g. 30-day rule)
+- On unlock, `rehydrateInlineImages` lifts any inline `data:image/...;base64` URIs out of the markdown into the `images` store and rewrites them to `idb://<uuid>` — keeps the editor responsive on imported notes
+
+### Image storage
+Images are referenced from markdown as `![alt](idb://<uuid>)`. `IdbImage` resolves these to object URLs at render time. On save, `extractImageIds` walks the markdown and GC's any image blobs no longer referenced by the note. On `.hwrite` export, `inlineImagesForExport` swaps `idb://` refs back to data URIs so the file is self-contained.
+
+### Modal queue — [src/hooks/useModalQueue.js](src/hooks/useModalQueue.js)
+Promise-returning modal manager. `open(spec)` returns a Promise; opening a new modal while one is pending **rejects the previous Promise with `"superseded"`**. Confirm/cancel handlers are bound to a per-open `id` so late-firing Radix lifecycle events can't settle a modal that was opened afterwards. Treat `cancelled` and `superseded` as "quiet" errors that should not toast (see `isQuietError` / `isQuietErr`).
+
+### .hwrite files — [src/js/hwrite.js](src/js/hwrite.js)
+Portable single-note format. JSON envelope with `{ hwrite: "1.0", encrypted, title, created, modified, content, checksum }`; encrypted envelopes additionally carry base64 `nonce` and `salt`. `parseHwrite` validates the version, required fields, and SHA-256 checksum before returning. `hwriteEnvelopeToBytes` lets the import path stash the encrypted envelope directly as a note record so the user can open it later with the normal unlock flow.
 
 ### Component layout — [src/](src/)
-- [App.jsx](src/App.jsx) is the single top-level component. It owns the canonical state (`notes`, `currentId`, `selectedNote`, `markdown`, `title`) and passes it down — there is no router and no global state library.
-- [components/Sidebar.jsx](src/components/Sidebar.jsx) — note list / selection / new-note
-- [components/Markdown.jsx](src/components/Markdown.jsx) — CKEditor host; orchestrates encrypt/decrypt, image insertion (saved to `images` store and rendered back via `renderImages`), and uses promise-returning modals (`PassPhraseModal`, `DeleteModal`) to gate save/delete on passphrase entry / confirmation
-- [components/Preview.jsx](src/components/Preview.jsx) — read-only rendered view
-- [components/ExportNotes.jsx](src/components/ExportNotes.jsx) — PDF/markdown export pipeline (html2pdf + turndown + dompurify)
-- [lib/theme.jsx](src/lib/theme.jsx) — theme provider; [lib/utils.js](src/lib/utils.js) — `cn()` class merge helper for shadcn components
+- [App.jsx](src/App.jsx) is the single top-level component. It owns canonical state (`notes`, `currentId`, `selectedNote`, `markdown`, `title`, `activeSection`, `isComposingNew`) and a session-only `titleCache` (plaintext titles keyed by note id, populated on unlock/save) so the sidebar can show real titles instead of "Encrypted note". There is no router and no global state library; the vault is the only React context.
+- [components/Markdown.jsx](src/components/Markdown.jsx) — editor host; wires `useNoteSession` + `useModalQueue` + `useVault` and renders `PassphraseModal` / `DeleteModal`
+- [components/NoteList.jsx](src/components/NoteList.jsx) + [Sidebar.jsx](src/components/Sidebar.jsx) — section nav, note list, vault tab, new-note + import entry points
+- [components/TopNav.jsx](src/components/TopNav.jsx) — lock button + status
+- [components/IdbImage.jsx](src/components/IdbImage.jsx) — resolves `idb://<uuid>` to a blob URL
+- [components/Hwrite{Import,Export}Dialog.jsx](src/components/) — `.hwrite` flows
+- [components/ExportNotes.jsx](src/components/ExportNotes.jsx) — PDF/markdown export pipeline
+- [lib/theme.jsx](src/lib/theme.jsx) — theme provider; [lib/utils.js](src/lib/utils.js) — `cn()` class merge helper
 
 ### PWA — [vite.config.js](vite.config.js)
-`VitePWA` is configured with `registerType: "autoUpdate"` and `devOptions.enabled: true` (so the SW is active in dev too). Manifest name is "Secure Notes". When changing icons/manifest, edit this file rather than adding a separate `manifest.json`.
+`VitePWA` is configured with `registerType: "autoUpdate"` and `devOptions.enabled: true` (so the SW is active in dev too). When changing icons/manifest, edit this file rather than adding a separate `manifest.json`.
 
 ## Conventions
 
 - Use the `@/` import alias for anything under `src/` (e.g. `import { Button } from "@/components/ui/button"`).
 - New UI primitives should follow the shadcn pattern already in [src/components/ui/](src/components/ui/) (Radix slot + `class-variance-authority` + `cn()`).
-- Modal interactions in `Markdown.jsx` use a `setModal({ type, resolve, reject })` pattern that turns dialogs into awaitable promises — preserve this shape when adding new gated actions.
-- Plaintext should never be persisted: anything written to the `notes` store must go through `encryptContent` first.
+- Plaintext must never be persisted: anything written to the `notes` store goes through `encryptContent` first. The same applies to titles — encrypt them into `titleCiphertext` / `titleIv` alongside the body.
+- Gated actions (passphrase entry, delete confirmation) use the `useModalQueue` promise pattern. Treat `cancelled` / `superseded` as quiet — don't toast them.
+- Vault notes carry `vault: true`. Preserve the flag across saves; new notes inherit it from `vaultMode`.
+- New images saved into a note must be referenced as `idb://<uuid>` in the markdown — never embed data URIs (the editor will lag and autosave will balloon the ciphertext).

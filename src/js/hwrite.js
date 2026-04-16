@@ -1,11 +1,12 @@
 
+import { v4 as uuid4 } from "uuid";
 import {
   deriveKey,
   encryptContent,
   decryptContent,
   generateSalt,
 } from "./crypto";
-import { getImage } from "./db";
+import { getImage, saveImage } from "./db";
 
 export const HWRITE_VERSION = "1.0";
 
@@ -62,6 +63,54 @@ const inlineImagesForExport = async (markdown) => {
     const dataUrl = cache.get(id);
     return dataUrl ? `${pre}${dataUrl}${post}` : full;
   });
+};
+
+// Inverse of inlineImagesForExport. Imported notes carry images as inline
+// `data:image/...;base64,...` URIs in the markdown. Leaving those in place
+// makes the editor lag badly because every keystroke re-renders megabytes of
+// base64. We extract each data URI, persist the bytes to the images store as
+// a normal blob, and rewrite the markdown to use lightweight `idb://uuid`
+// references that IdbImage resolves on demand.
+const DATA_URL_IMG_REGEX =
+  /(!\[[^\]]*\]\()(data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+)(\))/g;
+
+const dataUrlToBlob = (dataUrl) => {
+  const commaIdx = dataUrl.indexOf(",");
+  const meta = dataUrl.slice(0, commaIdx);
+  const b64 = dataUrl.slice(commaIdx + 1);
+  const mimeMatch = meta.match(/data:([^;]+);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const bytes = base64ToU8(b64);
+  return new Blob([bytes], { type: mime });
+};
+
+export const rehydrateInlineImages = async (markdown) => {
+  if (!markdown || !markdown.includes("data:image/")) {
+    return { markdown: markdown || "", imageIds: [], changed: false };
+  }
+  const matches = [...markdown.matchAll(DATA_URL_IMG_REGEX)];
+  if (!matches.length) {
+    return { markdown, imageIds: [], changed: false };
+  }
+  // Dedup identical data URLs so a reused image shares one blob entry.
+  const cache = new Map();
+  const newIds = [];
+  for (const m of matches) {
+    const dataUrl = m[2];
+    if (cache.has(dataUrl)) continue;
+    const id = uuid4();
+    await saveImage({ id, blob: dataUrlToBlob(dataUrl) });
+    cache.set(dataUrl, id);
+    newIds.push(id);
+  }
+  const rewritten = markdown.replace(
+    DATA_URL_IMG_REGEX,
+    (full, pre, dataUrl, post) => {
+      const id = cache.get(dataUrl);
+      return id ? `${pre}idb://${id}${post}` : full;
+    },
+  );
+  return { markdown: rewritten, imageIds: newIds, changed: true };
 };
 
 // --- public API -------------------------------------------------------------
@@ -154,6 +203,20 @@ export const parseHwrite = async (fileText) => {
   }
 
   return parsed;
+};
+
+// Convert a parsed encrypted envelope's base64 fields back to raw bytes so the
+// envelope can be persisted directly as a note record. Passphrase stays with
+// the user — the note is opened with the normal unlock flow later.
+export const hwriteEnvelopeToBytes = (parsed) => {
+  if (!parsed.encrypted) {
+    throw new Error("hwriteEnvelopeToBytes: envelope is not encrypted.");
+  }
+  return {
+    ciphertext: base64ToU8(parsed.content),
+    iv: base64ToU8(parsed.nonce),
+    salt: base64ToU8(parsed.salt),
+  };
 };
 
 export const decryptHwrite = async (parsed, passphrase) => {

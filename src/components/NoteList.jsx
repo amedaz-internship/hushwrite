@@ -1,8 +1,20 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
-import { parseHwrite, decryptHwrite } from "../js/hwrite";
+import { v4 as uuid4 } from "uuid";
+import {
+  parseHwrite,
+  decryptHwrite,
+  hwriteEnvelopeToBytes,
+  rehydrateInlineImages,
+} from "../js/hwrite";
 import HwriteImportDialog from "./HwriteImportDialog";
+import { useVault } from "@/lib/vault";
+import { decryptContent } from "../js/crypto";
+import { saveNote, getAllNotes } from "../js/db";
+
+const toBytes = (v) =>
+  v instanceof Uint8Array ? v : v ? new Uint8Array(v) : null;
 
 const Icon = ({ name, className }) => (
   <span className={cn("material-symbols-outlined", className)}>{name}</span>
@@ -34,12 +46,98 @@ const NoteList = ({
   titleCache = {},
   onSelectNote,
   onImportNote,
-  searchInputRef,
+  onNotesChanged,
+  onNewNote,
+  onSectionChange,
+  activeSection = "notes",
+  isComposingNew = false,
 }) => {
   const fileInputRef = useRef(null);
   const [importState, setImportState] = useState(null);
   const [dragActive, setDragActive] = useState(false);
-  const [query, setQuery] = useState("");
+  const vault = useVault();
+  const [gatePassphrase, setGatePassphrase] = useState("");
+  const [gateConfirm, setGateConfirm] = useState("");
+  const [gateError, setGateError] = useState(null);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [vaultTitles, setVaultTitles] = useState({});
+
+  const inVault = activeSection === "vault";
+  const showGate = inVault && !vault.isVaultUnlocked;
+
+  // Lock the vault whenever the user navigates away from the Vault section.
+  // Re-entering the section then re-prompts for the passphrase.
+  useEffect(() => {
+    if (!inVault && vault.isVaultUnlocked) {
+      vault.lockVault();
+    }
+  }, [inVault, vault]);
+
+  // Clear decrypted vault titles whenever the vault locks.
+  useEffect(() => {
+    if (!vault.isVaultUnlocked) setVaultTitles({});
+  }, [vault.isVaultUnlocked]);
+
+  // When the vault is unlocked, decrypt every vault note's title so the
+  // sidebar shows real labels instead of "Encrypted note".
+  useEffect(() => {
+    if (!vault.isVaultUnlocked || !vault.vaultKey) return;
+    let cancelled = false;
+    (async () => {
+      const pending = notes.filter(
+        (n) =>
+          n.vault === true &&
+          n.titleCiphertext &&
+          n.titleIv &&
+          !vaultTitles[n.id],
+      );
+      if (pending.length === 0) return;
+      const next = {};
+      for (const n of pending) {
+        try {
+          const plain = await decryptContent(
+            toBytes(n.titleCiphertext),
+            vault.vaultKey,
+            toBytes(n.titleIv),
+          );
+          next[n.id] = plain;
+        } catch {
+          /* skip notes that fail (different key, tampered, etc.) */
+        }
+      }
+      if (!cancelled && Object.keys(next).length) {
+        setVaultTitles((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [notes, vault.isVaultUnlocked, vault.vaultKey, vaultTitles]);
+
+  const handleGateSubmit = async (e) => {
+    e.preventDefault();
+    if (!gatePassphrase) return;
+    setGateBusy(true);
+    setGateError(null);
+    try {
+      if (vault.hasVault) {
+        await vault.unlockVault(gatePassphrase);
+      } else {
+        if (gatePassphrase !== gateConfirm) {
+          setGateError("Passphrases don't match.");
+          setGateBusy(false);
+          return;
+        }
+        await vault.createVault(gatePassphrase);
+      }
+      setGatePassphrase("");
+      setGateConfirm("");
+    } catch (err) {
+      setGateError(err.message || "Could not unlock vault.");
+    } finally {
+      setGateBusy(false);
+    }
+  };
 
   const handleHwriteFile = async (file) => {
     if (!file) return;
@@ -79,17 +177,16 @@ const NoteList = ({
     if (note.id === currentId) {
       return (currentTitle && currentTitle.trim())
         ? currentTitle
-        : titleCache[note.id] || note.title || null;
+        : titleCache[note.id] || vaultTitles[note.id] || note.title || null;
     }
-    return titleCache[note.id] || note.title || null;
+    return titleCache[note.id] || vaultTitles[note.id] || note.title || null;
   };
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return notes;
-    return notes.filter((n) => (resolveTitle(n) || "").toLowerCase().includes(q));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, query, currentId, currentTitle, titleCache]);
+  const scoped = useMemo(() => {
+    return notes.filter((n) => (inVault ? n.vault === true : n.vault !== true));
+  }, [notes, inVault]);
+
+  const filtered = scoped;
 
   return (
     <section
@@ -103,51 +200,163 @@ const NoteList = ({
       }}
       onDrop={onDrop}
       className={cn(
-        "relative flex w-80 flex-col border-r border-outline-variant/10 bg-surface-container-low",
+        "relative flex w-72 flex-col border-r border-outline-variant/10 bg-surface-container-lowest",
         dragActive && "ring-2 ring-vault-primary/60 ring-inset",
       )}
     >
       <div className="border-b border-outline-variant/10 p-4">
-        <div className="relative">
-          <Icon
-            name="search"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-outline"
-          />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search notes..."
-            className="w-full rounded-lg border border-transparent bg-surface-container py-2 pl-10 pr-4 text-sm text-on-surface placeholder-outline transition-all focus:border-vault-primary/50 focus:outline-none focus:ring-0"
-          />
+        <div className="mb-4 flex items-center gap-3 px-1">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-vault-primary/20 bg-primary-container/20">
+            <Icon name="enhanced_encryption" className="text-vault-primary" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-bold leading-none text-vault-primary">
+              Hushwrite
+            </h2>
+            <p className="mt-1 text-[10px] uppercase tracking-widest text-vault-primary/60">
+              Secure Session
+            </p>
+          </div>
         </div>
+
         <button
-          onClick={() => fileInputRef.current?.click()}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container py-2 text-xs font-medium text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
+          onClick={onNewNote}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest"
         >
-          <Icon name="file_upload" className="text-sm" />
-          Import .hwrite
+          <Icon name="add" className="text-base" />
+          New Note
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".hwrite,application/json"
-          hidden
-          onChange={onFilePick}
-        />
+
+        <div className="flex gap-1 rounded-lg bg-surface-container p-1">
+          {[
+            { id: "notes", label: "Notes", icon: "description" },
+            { id: "vault", label: "Vault", icon: "enhanced_encryption" },
+          ].map((s) => {
+            const isActive = s.id === activeSection;
+            return (
+              <button
+                key={s.id}
+                onClick={() => onSectionChange?.(s.id)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  isActive
+                    ? "bg-surface-container-high text-vault-primary"
+                    : "text-outline hover:text-on-surface",
+                )}
+              >
+                <Icon name={s.icon} className="text-sm" />
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {inVault && vault.isVaultUnlocked && (
+          <button
+            onClick={() => vault.lockVault()}
+            className="mt-3 flex w-full items-center justify-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-on-surface"
+            title="Lock vault"
+          >
+            <Icon name="lock" className="text-sm" />
+            Lock vault
+          </button>
+        )}
+
+        {!inVault && (
+          <>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container py-2 text-xs font-medium text-outline transition-all hover:bg-surface-container-high hover:text-on-surface"
+            >
+              <Icon name="file_upload" className="text-sm" />
+              Import .hwrite
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".hwrite,application/json"
+              hidden
+              onChange={onFilePick}
+            />
+          </>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 && (
-          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-            <Icon
-              name={query ? "search_off" : "description"}
-              className="text-2xl text-outline/60"
-            />
-            <p className="text-xs text-outline">
-              {query ? "No matches" : "No saved notes yet"}
+      {showGate ? (
+        <form
+          onSubmit={handleGateSubmit}
+          className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
+            <Icon name="enhanced_encryption" className="text-xl text-vault-primary" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-on-surface">
+              {vault.hasVault ? "Unlock vault" : "Create vault"}
+            </h3>
+            <p className="text-xs text-on-surface-variant">
+              {vault.hasVault
+                ? "One passphrase unlocks every note inside."
+                : "Choose one passphrase. It unlocks every note you save in this vault."}
             </p>
+          </div>
+          <input
+            type="password"
+            autoFocus
+            value={gatePassphrase}
+            onChange={(e) => setGatePassphrase(e.target.value)}
+            placeholder="Vault passphrase"
+            className={cn(
+              "w-full rounded-lg border bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:outline-none",
+              gateError
+                ? "border-error/60 focus:border-error"
+                : "border-outline-variant/30 focus:border-vault-primary/60",
+            )}
+          />
+          {!vault.hasVault && (
+            <input
+              type="password"
+              value={gateConfirm}
+              onChange={(e) => setGateConfirm(e.target.value)}
+              placeholder="Confirm passphrase"
+              className="w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-on-surface placeholder-outline focus:border-vault-primary/60 focus:outline-none"
+            />
+          )}
+          {gateError && (
+            <p className="text-xs text-error">{gateError}</p>
+          )}
+          <button
+            type="submit"
+            disabled={gateBusy || !gatePassphrase}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Icon name="lock_open" className="text-sm" />
+            {vault.hasVault ? "Unlock vault" : "Create vault"}
+          </button>
+        </form>
+      ) : (
+      <div className="flex-1 overflow-y-auto">
+        {isComposingNew && !currentId && (
+          <div className="block w-full border-l-2 border-vault-primary bg-surface-container-high/50 p-4 text-left">
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <h3 className="truncate text-sm font-semibold text-on-surface">
+                {currentTitle?.trim() || "Untitled"}
+              </h3>
+              <span className="whitespace-nowrap text-[10px] text-outline">
+                Now
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <span className="rounded bg-primary-container/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-vault-primary">
+                Draft
+              </span>
+            </div>
+          </div>
+        )}
+        {filtered.length === 0 && !isComposingNew && (
+          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+            <Icon name="description" className="text-2xl text-outline/60" />
+            <p className="text-xs text-outline">No saved notes yet</p>
           </div>
         )}
 
@@ -202,6 +411,7 @@ const NoteList = ({
           );
         })}
       </div>
+      )}
 
       {dragActive && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-surface/60 text-xs font-medium text-vault-primary backdrop-blur-sm">
@@ -213,10 +423,33 @@ const NoteList = ({
         <HwriteImportDialog
           parsed={importState.parsed}
           fileSize={importState.fileSize}
-          onDecrypt={(pw) => decryptHwrite(importState.parsed, pw)}
-          onConfirm={({ markdown, title }) => {
-            setImportState(null);
-            onImportNote?.({ markdown, title });
+          onConfirm={async () => {
+            const { parsed } = importState;
+            if (parsed.encrypted) {
+              const { ciphertext, iv, salt } = hwriteEnvelopeToBytes(parsed);
+              const now = new Date().toISOString();
+              await saveNote({
+                id: uuid4(),
+                ciphertext,
+                iv,
+                salt,
+                title: parsed.title,
+                imageIds: [],
+                vault: false,
+                createdAt: parsed.created || now,
+                updatedAt: parsed.modified || now,
+              });
+              setImportState(null);
+              onNotesChanged?.(await getAllNotes());
+              toast.success(`Imported "${parsed.title}" — locked until opened`);
+            } else {
+              const raw = await decryptHwrite(parsed, undefined);
+              // Move any inline data: images into the images store so the
+              // editor receives a lightweight markdown string.
+              const { markdown } = await rehydrateInlineImages(raw);
+              setImportState(null);
+              onImportNote?.({ markdown, title: parsed.title });
+            }
           }}
           onCancel={() => setImportState(null)}
         />
