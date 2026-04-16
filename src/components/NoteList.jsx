@@ -51,6 +51,7 @@ const NoteList = ({
   onSectionChange,
   activeSection = "notes",
   isComposingNew = false,
+  isNoteUnlocked = false,
 }) => {
   const fileInputRef = useRef(null);
   const [importState, setImportState] = useState(null);
@@ -399,12 +400,14 @@ const NoteList = ({
                 <span
                   className={cn(
                     "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                    isActive
+                    isActive && isNoteUnlocked
                       ? "bg-primary-container/20 text-vault-primary"
-                      : "bg-surface-container-highest text-on-surface-variant",
+                      : isActive
+                        ? "bg-surface-container-highest text-outline"
+                        : "bg-surface-container-highest text-on-surface-variant",
                   )}
                 >
-                  {isActive ? "Open" : isEncrypted ? "Encrypted" : "Locked"}
+                  {isActive ? (isNoteUnlocked ? "Open" : "Locked") : isEncrypted ? "Encrypted" : "Locked"}
                 </span>
               </div>
             </button>

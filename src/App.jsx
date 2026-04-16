@@ -122,6 +122,7 @@ const App = () => {
             setIsComposingNew(false);
           }}
           isComposingNew={isComposingNew}
+          isNoteUnlocked={isUnlockedRef.current?.() ?? false}
         />
         <Markdown
           selectedNote={selectedNote}
