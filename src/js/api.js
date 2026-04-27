@@ -2,19 +2,26 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 const TOKEN_KEY = "hushwrite-token";
 const USER_KEY = "hushwrite-user";
+const EMAIL_KEY = "hushwrite-email";
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export function setAuth(token, userId) {
+export function setAuth(token, userId, email) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, userId);
+  if (email) localStorage.setItem(EMAIL_KEY, email);
 }
 
 export function clearAuth() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+}
+
+export function getUserEmail() {
+  return localStorage.getItem(EMAIL_KEY);
 }
 
 export function getUserId() {
@@ -77,5 +84,11 @@ export const api = {
     request("/auth/reset-password", {
       method: "POST",
       body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+
+  changePassword: (currentPassword, newPassword) =>
+    request("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),
 };

@@ -2246,6 +2246,24 @@ function base64urlToBuffer(base64url2) {
 }
 __name(base64urlToBuffer, "base64urlToBuffer");
 
+// src/middleware/auth.js
+function authGuard() {
+  return async (c, next) => {
+    const header = c.req.header("Authorization");
+    if (!header || !header.startsWith("Bearer ")) {
+      return c.json({ error: "Missing or invalid Authorization header" }, 401);
+    }
+    const token = header.slice(7);
+    const payload = await verifyToken(token, c.env.JWT_SECRET);
+    if (!payload) {
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
+    c.set("userId", payload.sub);
+    await next();
+  };
+}
+__name(authGuard, "authGuard");
+
 // src/routes/auth.js
 var auth = new Hono2();
 auth.post("/forgot-password", async (c) => {
@@ -2337,25 +2355,31 @@ auth.post("/login", async (c) => {
   const token = await createToken({ sub: user.id, email: user.email }, c.env.JWT_SECRET);
   return c.json({ token, userId: user.id });
 });
+auth.post("/change-password", authGuard(), async (c) => {
+  const userId = c.get("userId");
+  const { current_password, new_password } = await c.req.json();
+  if (!current_password || !new_password) {
+    return c.json({ error: "Current password and new password are required" }, 400);
+  }
+  if (new_password.length < 8) {
+    return c.json({ error: "New password must be at least 8 characters" }, 400);
+  }
+  const user = await c.env.DB.prepare(
+    "SELECT id, password_hash FROM users WHERE id = ?"
+  ).bind(userId).first();
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+  const [hash, salt] = user.password_hash.split(":");
+  const valid = await verifyPassword(current_password, hash, salt);
+  if (!valid) {
+    return c.json({ error: "Current password is incorrect" }, 401);
+  }
+  const { hash: newHash, salt: newSalt } = await hashPassword(new_password);
+  await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(`${newHash}:${newSalt}`, userId).run();
+  return c.json({ message: "Password changed successfully" });
+});
 var auth_default = auth;
-
-// src/middleware/auth.js
-function authGuard() {
-  return async (c, next) => {
-    const header = c.req.header("Authorization");
-    if (!header || !header.startsWith("Bearer ")) {
-      return c.json({ error: "Missing or invalid Authorization header" }, 401);
-    }
-    const token = header.slice(7);
-    const payload = await verifyToken(token, c.env.JWT_SECRET);
-    if (!payload) {
-      return c.json({ error: "Invalid or expired token" }, 401);
-    }
-    c.set("userId", payload.sub);
-    await next();
-  };
-}
-__name(authGuard, "authGuard");
 
 // src/routes/notes.js
 var notes = new Hono2();

@@ -51,7 +51,7 @@ const AuthScreen = ({ onAuth }) => {
         mode === "login"
           ? await api.login(email, password)
           : await api.register(email, password);
-      setAuth(data.token, data.userId);
+      setAuth(data.token, data.userId, email);
       onAuth();
     } catch (err) {
       setError(err.message);

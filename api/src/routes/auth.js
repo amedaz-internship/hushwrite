@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { hashPassword, verifyPassword, createToken } from "../lib/auth.js";
+import { authGuard } from "../middleware/auth.js";
 
 const auth = new Hono();
 
@@ -158,6 +159,45 @@ auth.post("/login", async (c) => {
   const token = await createToken({ sub: user.id, email: user.email }, c.env.JWT_SECRET);
 
   return c.json({ token, userId: user.id });
+});
+
+// POST /auth/change-password (authenticated)
+auth.post("/change-password", authGuard(), async (c) => {
+  const userId = c.get("userId");
+  const { current_password, new_password } = await c.req.json();
+
+  if (!current_password || !new_password) {
+    return c.json({ error: "Current password and new password are required" }, 400);
+  }
+
+  if (new_password.length < 8) {
+    return c.json({ error: "New password must be at least 8 characters" }, 400);
+  }
+
+  const user = await c.env.DB.prepare(
+    "SELECT id, password_hash FROM users WHERE id = ?"
+  )
+    .bind(userId)
+    .first();
+
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const [hash, salt] = user.password_hash.split(":");
+  const valid = await verifyPassword(current_password, hash, salt);
+
+  if (!valid) {
+    return c.json({ error: "Current password is incorrect" }, 401);
+  }
+
+  const { hash: newHash, salt: newSalt } = await hashPassword(new_password);
+
+  await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+    .bind(`${newHash}:${newSalt}`, userId)
+    .run();
+
+  return c.json({ message: "Password changed successfully" });
 });
 
 export default auth;
