@@ -3,10 +3,16 @@ import toast, { Toaster } from "react-hot-toast";
 import TopNav from "./components/TopNav";
 import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
+import AuthScreen from "./components/AuthScreen";
 import { getAllNotes } from "./js/db";
 import { VaultProvider } from "./lib/vault";
+import { isLoggedIn, clearAuth } from "./js/api";
+import { syncNotes } from "./js/sync";
 
 const App = () => {
+  const [authed, setAuthed] = useState(isLoggedIn() || !!localStorage.getItem("hushwrite-skip-auth"));
+  const [syncing, setSyncing] = useState(false);
+
   const [markdown, setMarkdown] = useState("");
   const [currentId, setCurrentId] = useState(null);
   const [title, setTitle] = useState("");
@@ -91,6 +97,40 @@ const App = () => {
     handleNewNote();
   };
 
+  const handleAuth = () => {
+    if (!isLoggedIn()) {
+      localStorage.setItem("hushwrite-skip-auth", "1");
+    }
+    setAuthed(true);
+  };
+
+  const handleLogout = () => {
+    clearAuth();
+    localStorage.removeItem("hushwrite-skip-auth");
+    setAuthed(false);
+  };
+
+  const handleSync = async () => {
+    if (!isLoggedIn()) {
+      toast.error("Sign in to sync notes");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const { pulled, pushed } = await syncNotes();
+      await loadNotes();
+      toast.success(`Synced — ${pushed} pushed, ${pulled} pulled`);
+    } catch (err) {
+      toast.error(err.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  if (!authed) {
+    return <AuthScreen onAuth={handleAuth} />;
+  }
+
   return (
     <VaultProvider>
     <div className="flex h-screen flex-col overflow-hidden bg-surface font-body text-on-surface selection:bg-vault-primary/30">
@@ -98,6 +138,10 @@ const App = () => {
         isUnlocked={isUnlockedRef.current?.() ?? false}
         onLock={handleLock}
         notesCount={notes.length}
+        onSync={handleSync}
+        syncing={syncing}
+        isOnline={isLoggedIn()}
+        onLogout={handleLogout}
       />
       <main className="flex flex-1 overflow-hidden">
         <NoteList

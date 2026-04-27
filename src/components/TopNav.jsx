@@ -5,7 +5,7 @@ const Icon = ({ name, className }) => (
   <span className={cn("material-symbols-outlined", className)}>{name}</span>
 );
 
-const TopNav = ({ isUnlocked, onLock, notesCount = 0 }) => {
+const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, isOnline = false, onLogout }) => {
   const { theme, toggleTheme } = useTheme();
   return (
     <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between bg-surface px-6">
@@ -37,7 +37,21 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0 }) => {
           <Icon name={isUnlocked ? "lock_open" : "lock"} className="text-sm" />
           <span>{isUnlocked ? "Lock Session" : "Locked"}</span>
         </button>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {isOnline && (
+            <button
+              onClick={onSync}
+              disabled={syncing}
+              title="Sync notes"
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest active:scale-95",
+                syncing && "cursor-not-allowed opacity-50",
+              )}
+            >
+              <Icon name="sync" className={cn("text-sm", syncing && "animate-spin")} />
+              <span>{syncing ? "Syncing…" : "Sync"}</span>
+            </button>
+          )}
           <button
             onClick={toggleTheme}
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
@@ -45,6 +59,15 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0 }) => {
           >
             <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} />
           </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Sign out"
+              className="p-2 text-outline transition-colors hover:text-on-surface active:scale-95"
+            >
+              <Icon name="logout" />
+            </button>
+          )}
         </div>
       </div>
     </header>

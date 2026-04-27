@@ -4,17 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Hushwrite is a client-only, offline-first encrypted notes PWA. All notes and images live in the browser's IndexedDB; note content is encrypted with AES-GCM using a key derived from a user-supplied passphrase. There is no backend.
+Hushwrite is an offline-first encrypted notes PWA with an optional backend for backup and sync. All notes and images live in the browser's IndexedDB; note content is encrypted with AES-GCM using a key derived from a user-supplied passphrase. The app is fully functional without the backend — the server is purely additive for cross-device sync.
 
 Note: this directory sits inside the larger `tbites` monorepo, but hushwrite is an unrelated standalone app — ignore the parent `tbites/CLAUDE.md` (Medusa/Next.js storefront) when working here.
 
 ## Commands
 
+### Frontend (PWA)
 ```bash
 npm run dev       # Vite dev server (PWA enabled in dev via VitePWA devOptions)
 npm run build     # Production build to dist/
 npm run preview   # Preview built app
 npm run lint      # ESLint (flat config in eslint.config.js)
+```
+
+### Backend API ([api/](api/))
+```bash
+cd api
+npm run dev            # Wrangler dev server (http://localhost:8787)
+npm run deploy         # Deploy to Cloudflare Workers
+npm run db:migrate     # Run D1 schema migration (local)
+npm run db:migrate:prod # Run D1 schema migration (production)
 ```
 
 There is no test suite.
@@ -85,6 +95,28 @@ Portable single-note format. JSON envelope with `{ hwrite: "1.0", encrypted, tit
 ### PWA — [vite.config.js](vite.config.js)
 `VitePWA` is configured with `registerType: "autoUpdate"` and `devOptions.enabled: true` (so the SW is active in dev too). When changing icons/manifest, edit this file rather than adding a separate `manifest.json`.
 
+### Backend API — [api/](api/)
+Hono application running on Cloudflare Workers with D1 (SQLite) for storage. The server is a **dumb encrypted storage box** — it never sees plaintext. Notes are encrypted client-side before upload and decrypted client-side after download.
+
+**Stack:** Hono + Cloudflare Workers + D1 (SQLite). No external auth libraries — password hashing (PBKDF2) and JWT (HMAC-SHA256) use the Web Crypto API natively available in Workers.
+
+**Entry point:** [api/src/index.js](api/src/index.js) — registers middleware and routes.
+
+**Routes:**
+- [api/src/routes/auth.js](api/src/routes/auth.js) — `POST /auth/register`, `POST /auth/login` (returns JWT)
+- [api/src/routes/notes.js](api/src/routes/notes.js) — `GET/POST/DELETE /api/v1/notes` (CRUD for encrypted blobs, all auth-guarded)
+- [api/src/routes/sync.js](api/src/routes/sync.js) — `POST /api/v1/sync` (last-write-wins conflict resolution based on `updated_at`)
+
+**Middleware:**
+- [api/src/middleware/auth.js](api/src/middleware/auth.js) — JWT verification from `Authorization: Bearer <token>` header; sets `userId` on the context
+- [api/src/middleware/cors.js](api/src/middleware/cors.js) — CORS headers so the PWA can call the API
+
+**Auth utilities:** [api/src/lib/auth.js](api/src/lib/auth.js) — `hashPassword`, `verifyPassword` (PBKDF2, 100k iterations), `createToken`, `verifyToken` (HMAC-SHA256 JWT with 7-day expiry)
+
+**Database:** [api/src/db/schema.sql](api/src/db/schema.sql) — two tables: `users` (id, email, password_hash) and `notes` (id, user_id, ciphertext, iv, salt, title_ciphertext, title_iv, vault, image_ids, created_at, updated_at). The notes table mirrors the IndexedDB note record structure.
+
+**Config:** [api/wrangler.toml](api/wrangler.toml) — Workers config, D1 binding (`DB`), and `JWT_SECRET` env var (must be changed in production).
+
 ## Conventions
 
 - Use the `@/` import alias for anything under `src/` (e.g. `import { Button } from "@/components/ui/button"`).
@@ -93,3 +125,7 @@ Portable single-note format. JSON envelope with `{ hwrite: "1.0", encrypted, tit
 - Gated actions (passphrase entry, delete confirmation) use the `useModalQueue` promise pattern. Treat `cancelled` / `superseded` as quiet — don't toast them.
 - Vault notes carry `vault: true`. Preserve the flag across saves; new notes inherit it from `vaultMode`.
 - New images saved into a note must be referenced as `idb://<uuid>` in the markdown — never embed data URIs (the editor will lag and autosave will balloon the ciphertext).
+- The backend API lives in [api/](api/) and is a separate Hono app deployed to Cloudflare Workers. It has its own `package.json` and `node_modules`. Run `cd api && npm run dev` to start it locally.
+- The server must never see plaintext. All encryption/decryption happens client-side. The API only stores and returns opaque encrypted blobs.
+- Sync uses last-write-wins based on `updated_at` timestamps. The `POST /api/v1/sync` endpoint accepts client notes and returns server-side notes that are newer.
+- Auth is JWT-based (HMAC-SHA256) with no external libraries. Tokens expire after 7 days. The `JWT_SECRET` in `wrangler.toml` must be changed before production deployment.
