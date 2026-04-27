@@ -14,28 +14,35 @@ const EditorInner = ({ markdown, onChange }) => {
   const blobCache = useRef(new Map());
   onChangeRef.current = onChange;
 
+  // Resolve idb:// URLs to blob: URLs, used by both proxyDomURL and the
+  // MutationObserver fallback.
+  const resolveIdbUrl = useCallback(async (url) => {
+    if (!url?.startsWith("idb://")) return url;
+    const uuid = url.slice(6);
+    if (blobCache.current.has(uuid)) return blobCache.current.get(uuid);
+    try {
+      const record = await getImage(uuid);
+      if (record?.blob) {
+        const blobUrl = URL.createObjectURL(record.blob);
+        blobCache.current.set(uuid, blobUrl);
+        return blobUrl;
+      }
+    } catch { /* not found */ }
+    return url;
+  }, []);
+
   const resolveIdbImages = useCallback((root) => {
     if (!root) return;
     root.querySelectorAll("img").forEach(async (img) => {
       const src = img.getAttribute("src");
       if (!src?.startsWith("idb://") || img.dataset.idbResolved) return;
-      const uuid = src.slice(6);
-      if (blobCache.current.has(uuid)) {
-        img.src = blobCache.current.get(uuid);
+      const resolved = await resolveIdbUrl(src);
+      if (resolved !== src) {
+        img.src = resolved;
         img.dataset.idbResolved = "true";
-        return;
       }
-      try {
-        const record = await getImage(uuid);
-        if (record?.blob) {
-          const url = URL.createObjectURL(record.blob);
-          blobCache.current.set(uuid, url);
-          img.src = url;
-          img.dataset.idbResolved = "true";
-        }
-      } catch { /* not found */ }
     });
-  }, []);
+  }, [resolveIdbUrl]);
 
   useEditor((root) => {
     const crepe = new Crepe({
@@ -62,6 +69,12 @@ const EditorInner = ({ markdown, onChange }) => {
             const id = uuid4();
             await saveImage({ id, blob: file });
             return `idb://${id}`;
+          },
+          proxyDomURL: (url) => {
+            if (!url?.startsWith("idb://")) return url;
+            const uuid = url.slice(6);
+            if (blobCache.current.has(uuid)) return blobCache.current.get(uuid);
+            return resolveIdbUrl(url);
           },
         },
       },

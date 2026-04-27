@@ -2,6 +2,7 @@ import { api, isLoggedIn } from "./api";
 import { getAllNotes, saveNote, deleteNote, VAULT_META_ID } from "./db";
 
 const LAST_SYNCED_KEY = "hushwrite-last-synced";
+const PENDING_DELETES_KEY = "hushwrite-pending-deletes";
 
 function getLastSyncedAt() {
   return localStorage.getItem(LAST_SYNCED_KEY) || null;
@@ -9,6 +10,30 @@ function getLastSyncedAt() {
 
 function setLastSyncedAt(ts) {
   localStorage.setItem(LAST_SYNCED_KEY, ts);
+}
+
+/**
+ * Queue a note ID for deletion on next sync.
+ * Call this whenever a note is deleted locally.
+ */
+export function queueDeleteForSync(noteId) {
+  const pending = getPendingDeletes();
+  if (!pending.includes(noteId)) {
+    pending.push(noteId);
+    localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(pending));
+  }
+}
+
+function getPendingDeletes() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_DELETES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function clearPendingDeletes() {
+  localStorage.removeItem(PENDING_DELETES_KEY);
 }
 
 // Convert a local IndexedDB note (camelCase) to the server format (snake_case).
@@ -76,7 +101,7 @@ function base64ToArray(b64) {
 
 /**
  * Perform a full sync with the server.
- * Returns { pulled, pushed } counts.
+ * Returns { pulled, pushed, deleted } counts.
  */
 export async function syncNotes() {
   if (!isLoggedIn()) {
@@ -85,13 +110,14 @@ export async function syncNotes() {
 
   const localNotes = await getAllNotes();
   const lastSyncedAt = getLastSyncedAt();
+  const pendingDeletes = getPendingDeletes();
 
   // Convert local notes to server format
   const payload = localNotes
     .filter((n) => n.id !== VAULT_META_ID)
     .map(localToServer);
 
-  const { pull, pushed } = await api.sync(payload, lastSyncedAt);
+  const { pull, pushed, deleted } = await api.sync(payload, lastSyncedAt, pendingDeletes);
 
   // Write pulled notes (server-newer) into IndexedDB
   for (const serverNote of pull) {
@@ -99,11 +125,20 @@ export async function syncNotes() {
     await saveNote(local);
   }
 
+  // Delete notes that were deleted on other devices
+  for (const deletedId of deleted) {
+    await deleteNote(deletedId);
+  }
+
+  // Clear pending deletes now that server has them
+  clearPendingDeletes();
+
   // Update last synced timestamp
   setLastSyncedAt(new Date().toISOString());
 
   return {
     pulled: pull.length,
     pushed: pushed.length,
+    deleted: deleted.length,
   };
 }

@@ -2248,6 +2248,54 @@ __name(base64urlToBuffer, "base64urlToBuffer");
 
 // src/routes/auth.js
 var auth = new Hono2();
+auth.post("/forgot-password", async (c) => {
+  const { email } = await c.req.json();
+  if (!email) {
+    return c.json({ error: "Email is required" }, 400);
+  }
+  const user = await c.env.DB.prepare(
+    "SELECT id FROM users WHERE email = ?"
+  ).bind(email.toLowerCase()).first();
+  if (!user) {
+    return c.json({ message: "If that email exists, a reset link has been sent." });
+  }
+  await c.env.DB.prepare(
+    "UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0"
+  ).bind(user.id).run();
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1e3).toISOString();
+  await c.env.DB.prepare(
+    "INSERT INTO password_resets (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)"
+  ).bind(crypto.randomUUID(), user.id, token, expiresAt).run();
+  return c.json({
+    message: "If that email exists, a reset link has been sent.",
+    // DEV ONLY — remove in production
+    reset_token: token
+  });
+});
+auth.post("/reset-password", async (c) => {
+  const { token, new_password } = await c.req.json();
+  if (!token || !new_password) {
+    return c.json({ error: "Token and new_password are required" }, 400);
+  }
+  if (new_password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+  const reset = await c.env.DB.prepare(
+    "SELECT * FROM password_resets WHERE token = ? AND used = 0"
+  ).bind(token).first();
+  if (!reset) {
+    return c.json({ error: "Invalid or expired reset token" }, 400);
+  }
+  if (new Date(reset.expires_at) < /* @__PURE__ */ new Date()) {
+    await c.env.DB.prepare("UPDATE password_resets SET used = 1 WHERE id = ?").bind(reset.id).run();
+    return c.json({ error: "Reset token has expired" }, 400);
+  }
+  const { hash, salt } = await hashPassword(new_password);
+  await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(`${hash}:${salt}`, reset.user_id).run();
+  await c.env.DB.prepare("UPDATE password_resets SET used = 1 WHERE id = ?").bind(reset.id).run();
+  return c.json({ message: "Password has been reset. You can now log in." });
+});
 auth.post("/register", async (c) => {
   const { email, password } = await c.req.json();
   if (!email || !password) {
@@ -2382,7 +2430,28 @@ var sync = new Hono2();
 sync.use("/*", authGuard());
 sync.post("/", async (c) => {
   const userId = c.get("userId");
-  const { notes: clientNotes = [], last_synced_at } = await c.req.json();
+  const { notes: clientNotes = [], deleted_ids: clientDeletedIds = [], last_synced_at } = await c.req.json();
+  for (const noteId of clientDeletedIds) {
+    await c.env.DB.prepare("DELETE FROM notes WHERE id = ? AND user_id = ?").bind(noteId, userId).run();
+    await c.env.DB.prepare(
+      `INSERT INTO deleted_notes (id, note_id, user_id, deleted_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO NOTHING`
+    ).bind(crypto.randomUUID(), noteId, userId, (/* @__PURE__ */ new Date()).toISOString()).run();
+  }
+  let serverDeletedIds = [];
+  if (last_synced_at) {
+    const { results } = await c.env.DB.prepare(
+      "SELECT note_id FROM deleted_notes WHERE user_id = ? AND deleted_at > ?"
+    ).bind(userId, last_synced_at).all();
+    serverDeletedIds = results.map((r) => r.note_id);
+  } else {
+    const { results } = await c.env.DB.prepare(
+      "SELECT note_id FROM deleted_notes WHERE user_id = ?"
+    ).bind(userId).all();
+    serverDeletedIds = results.map((r) => r.note_id);
+  }
+  const deletedSet = /* @__PURE__ */ new Set([...clientDeletedIds, ...serverDeletedIds]);
   const { results: serverNotes } = await c.env.DB.prepare(
     "SELECT * FROM notes WHERE user_id = ?"
   ).bind(userId).all();
@@ -2390,6 +2459,7 @@ sync.post("/", async (c) => {
   const pull = [];
   const pushed = [];
   for (const clientNote of clientNotes) {
+    if (deletedSet.has(clientNote.id)) continue;
     const serverNote = serverMap.get(clientNote.id);
     if (!serverNote) {
       await upsertNote(c.env.DB, userId, clientNote);
@@ -2405,9 +2475,12 @@ sync.post("/", async (c) => {
     serverMap.delete(clientNote.id);
   }
   for (const serverNote of serverMap.values()) {
-    pull.push(serverNote);
+    if (!deletedSet.has(serverNote.id)) {
+      pull.push(serverNote);
+    }
   }
   for (const serverNote of serverNotes) {
+    if (deletedSet.has(serverNote.id)) continue;
     const clientNote = clientNotes.find((n) => n.id === serverNote.id);
     if (clientNote) {
       const clientTime = new Date(clientNote.updated_at).getTime();
@@ -2417,7 +2490,7 @@ sync.post("/", async (c) => {
       }
     }
   }
-  return c.json({ pull, pushed, deleted: [] });
+  return c.json({ pull, pushed, deleted: serverDeletedIds });
 });
 async function upsertNote(db, userId, note) {
   await db.prepare(

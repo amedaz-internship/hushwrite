@@ -117,9 +117,11 @@ const App = () => {
     }
     setSyncing(true);
     try {
-      const { pulled, pushed } = await syncNotes();
+      const { pulled, pushed, deleted } = await syncNotes();
       await loadNotes();
-      toast.success(`Synced — ${pushed} pushed, ${pulled} pulled`);
+      const parts = [`${pushed} pushed`, `${pulled} pulled`];
+      if (deleted > 0) parts.push(`${deleted} deleted`);
+      toast.success(`Synced — ${parts.join(", ")}`);
     } catch (err) {
       toast.error(err.message || "Sync failed");
     } finally {

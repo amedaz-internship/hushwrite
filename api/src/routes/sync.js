@@ -8,7 +8,7 @@ sync.use("/*", authGuard());
 /**
  * POST /sync
  *
- * Client sends its local notes with timestamps.
+ * Client sends its local notes with timestamps plus any local deletions.
  * Server responds with what the client needs to update and accepts what's newer.
  *
  * Strategy: last-write-wins based on updated_at.
@@ -16,7 +16,8 @@ sync.use("/*", authGuard());
  * Request body:
  * {
  *   notes: [{ id, ciphertext, iv, salt, title_ciphertext, title_iv, vault, image_ids, created_at, updated_at }],
- *   last_synced_at: "ISO string" | null  (when the client last synced)
+ *   deleted_ids: [note ids deleted locally since last sync],
+ *   last_synced_at: "ISO string" | null
  * }
  *
  * Response:
@@ -28,9 +29,46 @@ sync.use("/*", authGuard());
  */
 sync.post("/", async (c) => {
   const userId = c.get("userId");
-  const { notes: clientNotes = [], last_synced_at } = await c.req.json();
+  const { notes: clientNotes = [], deleted_ids: clientDeletedIds = [], last_synced_at } = await c.req.json();
 
-  // Get all server notes for this user
+  // --- Handle client-side deletions ---
+  for (const noteId of clientDeletedIds) {
+    await c.env.DB.prepare("DELETE FROM notes WHERE id = ? AND user_id = ?")
+      .bind(noteId, userId)
+      .run();
+    // Record the deletion so other devices learn about it
+    await c.env.DB.prepare(
+      `INSERT INTO deleted_notes (id, note_id, user_id, deleted_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO NOTHING`
+    )
+      .bind(crypto.randomUUID(), noteId, userId, new Date().toISOString())
+      .run();
+  }
+
+  // --- Get server-side deletions since last sync ---
+  let serverDeletedIds = [];
+  if (last_synced_at) {
+    const { results } = await c.env.DB.prepare(
+      "SELECT note_id FROM deleted_notes WHERE user_id = ? AND deleted_at > ?"
+    )
+      .bind(userId, last_synced_at)
+      .all();
+    serverDeletedIds = results.map((r) => r.note_id);
+  } else {
+    // First sync — send all deletions
+    const { results } = await c.env.DB.prepare(
+      "SELECT note_id FROM deleted_notes WHERE user_id = ?"
+    )
+      .bind(userId)
+      .all();
+    serverDeletedIds = results.map((r) => r.note_id);
+  }
+
+  // Build set of deleted note IDs to skip during merge
+  const deletedSet = new Set([...clientDeletedIds, ...serverDeletedIds]);
+
+  // --- Merge notes ---
   const { results: serverNotes } = await c.env.DB.prepare(
     "SELECT * FROM notes WHERE user_id = ?"
   )
@@ -39,14 +77,16 @@ sync.post("/", async (c) => {
 
   const serverMap = new Map(serverNotes.map((n) => [n.id, n]));
 
-  const pull = [];    // notes to send to client (server is newer)
-  const pushed = [];  // note ids accepted from client
+  const pull = [];
+  const pushed = [];
 
   for (const clientNote of clientNotes) {
+    // Skip notes that have been deleted
+    if (deletedSet.has(clientNote.id)) continue;
+
     const serverNote = serverMap.get(clientNote.id);
 
     if (!serverNote) {
-      // New note from client — accept it
       await upsertNote(c.env.DB, userId, clientNote);
       pushed.push(clientNote.id);
     } else {
@@ -54,24 +94,24 @@ sync.post("/", async (c) => {
       const serverTime = new Date(serverNote.updated_at).getTime();
 
       if (clientTime > serverTime) {
-        // Client is newer — accept it
         await upsertNote(c.env.DB, userId, clientNote);
         pushed.push(clientNote.id);
       }
-      // If server is newer, it will be included in pull below
     }
 
-    // Remove from map so we know what's left (server-only notes)
     serverMap.delete(clientNote.id);
   }
 
-  // Remaining server notes that client doesn't have — send to client
+  // Remaining server notes the client doesn't have (excluding deleted)
   for (const serverNote of serverMap.values()) {
-    pull.push(serverNote);
+    if (!deletedSet.has(serverNote.id)) {
+      pull.push(serverNote);
+    }
   }
 
-  // Also include server notes that are newer than client versions
+  // Server notes newer than client versions
   for (const serverNote of serverNotes) {
+    if (deletedSet.has(serverNote.id)) continue;
     const clientNote = clientNotes.find((n) => n.id === serverNote.id);
     if (clientNote) {
       const clientTime = new Date(clientNote.updated_at).getTime();
@@ -82,7 +122,7 @@ sync.post("/", async (c) => {
     }
   }
 
-  return c.json({ pull, pushed, deleted: [] });
+  return c.json({ pull, pushed, deleted: serverDeletedIds });
 });
 
 async function upsertNote(db, userId, note) {

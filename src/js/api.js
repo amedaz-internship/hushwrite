@@ -61,9 +61,21 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
-  sync: (notes, lastSyncedAt) =>
+  sync: (notes, lastSyncedAt, deletedIds = []) =>
     request("/api/v1/sync", {
       method: "POST",
-      body: JSON.stringify({ notes, last_synced_at: lastSyncedAt }),
+      body: JSON.stringify({ notes, last_synced_at: lastSyncedAt, deleted_ids: deletedIds }),
+    }),
+
+  forgotPassword: (email) =>
+    request("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token, newPassword) =>
+    request("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password: newPassword }),
     }),
 };
