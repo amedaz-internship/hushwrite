@@ -136,12 +136,7 @@ const AuthScreen = ({ onAuth }) => {
     <div className="flex min-h-screen items-center justify-center bg-surface p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-vault-primary/20 bg-primary-container/20">
-            <Icon
-              name="enhanced_encryption"
-              className="text-2xl text-vault-primary"
-            />
-          </div>
+          <img src="/panda-192.png" alt="Hushwrite" className="mx-auto mb-4 h-14 w-14 rounded-full object-cover" />
           <h1 className="text-2xl font-bold text-on-surface">Hushwrite</h1>
           <p className="mt-1 text-sm text-on-surface-variant">{subtitle}</p>
         </div>

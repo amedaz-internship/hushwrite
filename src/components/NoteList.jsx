@@ -207,9 +207,7 @@ const NoteList = ({
     >
       <div className="border-b border-outline-variant/10 p-4">
         <div className="mb-4 flex items-center gap-3 px-1">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-vault-primary/20 bg-primary-container/20">
-            <Icon name="enhanced_encryption" className="text-vault-primary" />
-          </div>
+          <img src="/panda-192.png" alt="Hushwrite" className="h-9 w-9 rounded-full object-cover" />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-bold leading-none text-vault-primary">
               Hushwrite

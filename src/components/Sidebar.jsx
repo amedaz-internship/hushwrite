@@ -22,9 +22,7 @@ const Sidebar = ({
     <aside className="sticky left-0 flex h-full w-64 flex-col gap-2 border-r border-outline-variant/10 bg-surface-container-lowest p-4">
       <div className="mb-6 px-2">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-vault-primary/20 bg-primary-container/20">
-            <Icon name="enhanced_encryption" className="text-vault-primary" />
-          </div>
+          <img src="/panda-192.png" alt="Hushwrite" className="h-10 w-10 rounded-full object-cover" />
           <div>
             <h2 className="text-lg font-bold leading-none text-vault-primary">
               Hushwrite
