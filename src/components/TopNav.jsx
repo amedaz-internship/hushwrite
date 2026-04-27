@@ -186,33 +186,48 @@ const ChangePasswordDialog = ({ open, onOpenChange }) => {
   );
 };
 
-const AboutDialog = ({ open, onOpenChange }) => (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>About Hushwrite</DialogTitle>
-        <DialogDescription>Privacy-first encrypted notes</DialogDescription>
-      </DialogHeader>
-      <div className="space-y-4 text-sm text-on-surface-variant">
-        <p>
-          Hushwrite is an offline-first, encrypted notes app that keeps your thoughts private.
-          All notes are encrypted with AES-GCM using a key derived from your passphrase — your
-          data never leaves your device in plaintext.
-        </p>
-        <p>
-          With optional cloud sync, you can access your encrypted notes across devices while
-          maintaining full end-to-end encryption. The server never sees your content.
-        </p>
-        <div className="border-t border-outline-variant/20 pt-4">
+const AboutPage = ({ open, onClose }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col bg-surface">
+      <div className="flex h-16 items-center justify-between px-6">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-high"
+        >
+          <Icon name="arrow_back" className="text-sm" />
+          Back
+        </button>
+      </div>
+      <div className="flex flex-1 flex-col items-center justify-center px-6 pb-20">
+        <img
+          src="/panda-192.png"
+          alt="Hushwrite"
+          className="mb-6 h-24 w-24 rounded-full object-cover shadow-lg"
+        />
+        <h1 className="mb-2 text-3xl font-bold tracking-tight text-vault-primary">Hushwrite</h1>
+        <p className="mb-8 text-sm text-outline">Privacy-first encrypted notes</p>
+        <div className="max-w-md space-y-4 text-center text-sm leading-relaxed text-on-surface">
+          <p>
+            Hushwrite is an offline-first, encrypted notes app that keeps your thoughts private.
+            All notes are encrypted with AES-GCM using a key derived from your passphrase — your
+            data never leaves your device in plaintext.
+          </p>
+          <p>
+            With optional cloud sync, you can access your encrypted notes across devices while
+            maintaining full end-to-end encryption. The server never sees your content.
+          </p>
+        </div>
+        <div className="mt-10 border-t border-outline-variant/20 pt-6">
           <p className="text-xs text-outline">
-            Made by <span className="font-semibold text-on-surface-variant">Elissa Tenn</span>, intern at{" "}
-            <span className="font-semibold text-on-surface-variant">Amedaz</span> in Zahle, Lebanon.
+            Made by <span className="font-semibold text-vault-primary">Elissa Tenn</span>, intern at{" "}
+            <span className="font-semibold text-vault-primary">Amedaz</span> in Zahle, Lebanon.
           </p>
         </div>
       </div>
-    </DialogContent>
-  </Dialog>
-);
+    </div>
+  );
+};
 
 const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, isOnline = false, onLogout }) => {
   const { theme, toggleTheme } = useTheme();
@@ -283,7 +298,7 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
         </div>
       </header>
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
-      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <AboutPage open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </>
   );
 };
