@@ -1,0 +1,11 @@
+name = "hushwrite-api"
+main = "src/index.js"
+compatibility_date = "2025-04-27"
+
+[vars]
+JWT_SECRET = "change-me-in-production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hushwrite-db"
+database_id = "local"

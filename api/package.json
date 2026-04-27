@@ -1,0 +1,19 @@
+{
+  "name": "hushwrite-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute hushwrite-db --local --file=./src/db/schema.sql",
+    "db:migrate:prod": "wrangler d1 execute hushwrite-db --file=./src/db/schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250424.0",
+    "wrangler": "^4.14.0"
+  }
+}
