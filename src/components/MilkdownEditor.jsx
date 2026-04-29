@@ -44,6 +44,39 @@ const EditorInner = ({ markdown, onChange }) => {
     });
   }, [resolveIdbUrl]);
 
+  // Eagerly load every idb:// image referenced in the markdown into the blob
+  // cache. Crepe's proxyDomURL is invoked synchronously when a node is rendered;
+  // a cache miss there falls back to returning the raw idb:// URL (which the
+  // browser cannot fetch). Pre-warming the cache when the markdown prop changes
+  // — including after the editor remounts on login transitions — guarantees the
+  // sync lookup hits and the <img> renders without flashing a broken state.
+  useEffect(() => {
+    if (!markdown) return;
+    const ids = new Set();
+    for (const m of markdown.matchAll(/idb:\/\/([0-9a-f-]+)/gi)) {
+      ids.add(m[1]);
+    }
+    if (ids.size === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const uuid of ids) {
+        if (cancelled || blobCache.current.has(uuid)) continue;
+        try {
+          const record = await getImage(uuid);
+          if (cancelled) return;
+          if (record?.blob) {
+            blobCache.current.set(uuid, URL.createObjectURL(record.blob));
+          }
+        } catch { /* not found */ }
+      }
+      if (!cancelled) {
+        const container = document.querySelector(".milkdown-wrapper .milkdown");
+        if (container) resolveIdbImages(container);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [markdown, resolveIdbImages]);
+
   useEditor((root) => {
     const crepe = new Crepe({
       root,

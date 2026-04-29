@@ -34,7 +34,7 @@ There is no test suite.
 ### Stack
 - **React 19** + **Vite 8**, JSX (no TypeScript; `jsconfig.json` provides the `@/*` → `src/*` alias also defined in [vite.config.js](vite.config.js))
 - **Tailwind CSS 3** + **shadcn/ui** style primitives in [src/components/ui/](src/components/ui/) (Radix-based: dialog, alert-dialog, button, input)
-- **`@uiw/react-md-editor`** is the markdown editor; **`marked`** renders preview HTML
+- **`@milkdown/crepe`** + **`@milkdown/react`** power the markdown editor (see [components/MilkdownEditor.jsx](src/components/MilkdownEditor.jsx)); **`marked`** + **`highlight.js`** render preview HTML
 - **idb** wraps IndexedDB; **vite-plugin-pwa** registers a service worker (autoUpdate)
 - **html2pdf.js** + **dompurify** drive note export/sanitization
 - **react-hot-toast** for notifications
@@ -83,14 +83,22 @@ Promise-returning modal manager. `open(spec)` returns a Promise; opening a new m
 Portable single-note format. JSON envelope with `{ hwrite: "1.0", encrypted, title, created, modified, content, checksum }`; encrypted envelopes additionally carry base64 `nonce` and `salt`. `parseHwrite` validates the version, required fields, and SHA-256 checksum before returning. `hwriteEnvelopeToBytes` lets the import path stash the encrypted envelope directly as a note record so the user can open it later with the normal unlock flow.
 
 ### Component layout — [src/](src/)
-- [App.jsx](src/App.jsx) is the single top-level component. It owns canonical state (`notes`, `currentId`, `selectedNote`, `markdown`, `title`, `activeSection`, `isComposingNew`) and a session-only `titleCache` (plaintext titles keyed by note id, populated on unlock/save) so the sidebar can show real titles instead of "Encrypted note". There is no router and no global state library; the vault is the only React context.
-- [components/Markdown.jsx](src/components/Markdown.jsx) — editor host; wires `useNoteSession` + `useModalQueue` + `useVault` and renders `PassphraseModal` / `DeleteModal`
+- [App.jsx](src/App.jsx) is the single top-level component. It owns canonical state (`notes`, `currentId`, `selectedNote`, `markdown`, `title`, `activeSection`, `isComposingNew`), auth state (`authed`, `syncing` — backed by `isLoggedIn()` from [js/api.js](src/js/api.js) and a `hushwrite-skip-auth` localStorage opt-out), and a session-only `titleCache` (plaintext titles keyed by note id, populated on unlock/save) so the sidebar can show real titles instead of "Encrypted note". When unauthed and not skipped, App renders [AuthScreen](src/components/AuthScreen.jsx) instead of the editor. There is no router and no global state library; the vault is the only React context.
+- [components/AuthScreen.jsx](src/components/AuthScreen.jsx) — login/register/skip UI for the optional backend; calls into [js/api.js](src/js/api.js) and flips `authed` in App
+- [components/Markdown.jsx](src/components/Markdown.jsx) — editor host; wires `useNoteSession` + `useModalQueue` + `useVault` and renders the [MilkdownEditor](src/components/MilkdownEditor.jsx), [Preview](src/components/Preview.jsx), [PassPhraseModal](src/components/PassPhraseModal.jsx), and [DeleteModal](src/components/DeleteModal.jsx)
+- [components/MilkdownEditor.jsx](src/components/MilkdownEditor.jsx) — Crepe-based markdown editor wrapper
+- [components/Preview.jsx](src/components/Preview.jsx) — read-only marked + DOMPurify preview pane
+- [components/PassPhraseModal.jsx](src/components/PassPhraseModal.jsx), [components/DeleteModal.jsx](src/components/DeleteModal.jsx) — extracted modal components driven by `useModalQueue`
 - [components/NoteList.jsx](src/components/NoteList.jsx) + [Sidebar.jsx](src/components/Sidebar.jsx) — section nav, note list, vault tab, new-note + import entry points
-- [components/TopNav.jsx](src/components/TopNav.jsx) — lock button + status
+- [components/TopNav.jsx](src/components/TopNav.jsx) — lock button + status; also defines the in-file `AboutPage` component opened from the menu
 - [components/IdbImage.jsx](src/components/IdbImage.jsx) — resolves `idb://<uuid>` to a blob URL
 - [components/Hwrite{Import,Export}Dialog.jsx](src/components/) — `.hwrite` flows
 - [components/ExportNotes.jsx](src/components/ExportNotes.jsx) — PDF/markdown export pipeline
 - [lib/theme.jsx](src/lib/theme.jsx) — theme provider; [lib/utils.js](src/lib/utils.js) — `cn()` class merge helper
+
+### Backend client — [src/js/api.js](src/js/api.js) + [src/js/sync.js](src/js/sync.js)
+- [api.js](src/js/api.js) — fetch wrapper for the Workers API. Reads `VITE_API_URL` (default `http://localhost:8787`); persists token + user metadata in localStorage under `hushwrite-token` / `hushwrite-user` / `hushwrite-email`. Exports `getToken`, `setAuth`, `clearAuth`, `getUserId`, `getUserEmail`, `isLoggedIn`, plus the grouped `api` object for register/login/notes/sync calls.
+- [sync.js](src/js/sync.js) — orchestrates `POST /api/v1/sync`. Tracks `hushwrite-last-synced` and a `hushwrite-pending-deletes` queue in localStorage; `queueDeleteForSync(noteId)` is called from the delete paths so deletions propagate even when offline. `localToServer` / `serverToLocal` translate between IndexedDB note records (Uint8Array crypto fields) and base64 wire format. App calls `syncNotes()` after auth.
 
 ### PWA — [vite.config.js](vite.config.js)
 `VitePWA` is configured with `registerType: "autoUpdate"` and `devOptions.enabled: true` (so the SW is active in dev too). When changing icons/manifest, edit this file rather than adding a separate `manifest.json`.
@@ -113,7 +121,7 @@ Hono application running on Cloudflare Workers with D1 (SQLite) for storage. The
 
 **Auth utilities:** [api/src/lib/auth.js](api/src/lib/auth.js) — `hashPassword`, `verifyPassword` (PBKDF2, 100k iterations), `createToken`, `verifyToken` (HMAC-SHA256 JWT with 7-day expiry)
 
-**Database:** [api/src/db/schema.sql](api/src/db/schema.sql) — two tables: `users` (id, email, password_hash) and `notes` (id, user_id, ciphertext, iv, salt, title_ciphertext, title_iv, vault, image_ids, created_at, updated_at). The notes table mirrors the IndexedDB note record structure.
+**Database:** [api/src/db/schema.sql](api/src/db/schema.sql) — base tables: `users` (id, email, password_hash) and `notes` (id, user_id, ciphertext, iv, salt, title_ciphertext, title_iv, vault, image_ids, created_at, updated_at). The notes table mirrors the IndexedDB note record structure. [api/src/db/migration-002-reset-and-deletes.sql](api/src/db/migration-002-reset-and-deletes.sql) layers on `password_resets` and a `deleted_notes` tombstone table that the sync endpoint uses to propagate deletions across devices. Apply migrations in order via `wrangler d1 execute hushwrite-db --file=...` (the `db:migrate*` scripts only run `schema.sql` — apply migration 002 manually for now).
 
 **Config:** [api/wrangler.toml](api/wrangler.toml) — Workers config, D1 binding (`DB`), and `JWT_SECRET` env var (must be changed in production).
 
