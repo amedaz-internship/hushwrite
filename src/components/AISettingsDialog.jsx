@@ -11,6 +11,7 @@ const Icon = ({ name, className }) => (
 const AISettingsDialog = ({ open, onOpenChange }) => {
   const ai = useAI();
   const [downloaded, setDownloaded] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
 
   useEffect(() => {
     if (!open) return;
@@ -47,18 +48,25 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
     }
   };
 
-  const handleDisable = async () => {
+  const handleDisable = () => setPendingConfirm("disable");
+  const handleRemove = () => setPendingConfirm("remove");
+
+  const confirmDisable = async () => {
+    setPendingConfirm(null);
     ai.setEnabled(false);
     await ai.unload();
     toast("AI disabled — model still cached");
   };
 
-  const handleRemove = async () => {
+  const confirmRemove = async () => {
+    setPendingConfirm(null);
     ai.setEnabled(false);
     await ai.removeModelCache();
     setDownloaded(false);
     toast.success("AI model removed");
   };
+
+  const closeConfirm = () => setPendingConfirm(null);
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-surface">
@@ -205,6 +213,130 @@ const AISettingsDialog = ({ open, onOpenChange }) => {
           )}
         </div>
       </div>
+
+      {pendingConfirm && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={closeConfirm}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-7 shadow-2xl"
+          >
+            {pendingConfirm === "disable" ? (
+              <>
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
+                  <Icon name="pause_circle" className="text-2xl text-vault-primary" />
+                </div>
+                <h2 className="text-xl font-bold tracking-tight text-on-surface">
+                  Disable AI?
+                </h2>
+                <p className="mt-1.5 text-sm text-on-surface-variant">
+                  The AI engine will stop running on your device. Re-enabling
+                  later is fast — the model stays cached.
+                </p>
+                <ul className="mt-5 space-y-2.5 rounded-xl bg-surface-container-low p-4 text-xs text-on-surface-variant">
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="check_circle"
+                      className="mt-0.5 text-sm text-vault-primary"
+                    />
+                    GPU memory is released
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="check_circle"
+                      className="mt-0.5 text-sm text-vault-primary"
+                    />
+                    The 1.8 GB model stays on your device
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="check_circle"
+                      className="mt-0.5 text-sm text-vault-primary"
+                    />
+                    Re-enabling takes a few seconds, no redownload
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="check_circle"
+                      className="mt-0.5 text-sm text-vault-primary"
+                    />
+                    The AI button hides from the editor toolbar
+                  </li>
+                </ul>
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={closeConfirm}
+                    className="rounded-lg bg-surface-container-high px-5 py-2.5 text-sm font-semibold text-on-surface transition-all hover:bg-surface-container-highest active:scale-95"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDisable}
+                    className="flex items-center gap-2 rounded-lg bg-vault-primary px-5 py-2.5 text-sm font-semibold text-on-primary-fixed shadow-lg shadow-vault-primary/20 transition-all hover:scale-[1.02] active:scale-95"
+                  >
+                    <Icon name="pause_circle" className="text-base" />
+                    Disable AI
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-error/15 ring-1 ring-error/30">
+                  <Icon name="delete" className="text-2xl text-error" />
+                </div>
+                <h2 className="text-xl font-bold tracking-tight text-on-surface">
+                  Remove cached model?
+                </h2>
+                <p className="mt-1.5 text-sm text-on-surface-variant">
+                  The full 1.8 GB model will be deleted from this device.
+                  Re-enabling AI later requires a complete redownload.
+                </p>
+                <ul className="mt-5 space-y-2.5 rounded-xl bg-error/5 p-4 text-xs text-on-surface-variant">
+                  <li className="flex items-start gap-2.5">
+                    <Icon name="delete" className="mt-0.5 text-sm text-error" />
+                    All AI weight files removed (~1.8 GB freed)
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon name="delete" className="mt-0.5 text-sm text-error" />
+                    GPU memory released, AI engine torn down
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="info"
+                      className="mt-0.5 text-sm text-on-surface-variant"
+                    />
+                    Your notes, vault, and account are not affected
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <Icon
+                      name="cloud_download"
+                      className="mt-0.5 text-sm text-on-surface-variant"
+                    />
+                    Next enable downloads the full ~1.8 GB again
+                  </li>
+                </ul>
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={closeConfirm}
+                    className="rounded-lg bg-surface-container-high px-5 py-2.5 text-sm font-semibold text-on-surface transition-all hover:bg-surface-container-highest active:scale-95"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmRemove}
+                    className="flex items-center gap-2 rounded-lg bg-vault-primary px-5 py-2.5 text-sm font-semibold text-on-primary-fixed shadow-lg shadow-vault-primary/20 transition-all hover:scale-[1.02] active:scale-95"
+                  >
+                    <Icon name="delete" className="text-base" />
+                    Remove model
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
