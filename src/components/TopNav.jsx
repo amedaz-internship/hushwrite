@@ -9,12 +9,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import AISettingsDialog from "./AISettingsDialog";
 
 const Icon = ({ name, className }) => (
   <span className={cn("material-symbols-outlined", className)}>{name}</span>
 );
 
-const ProfileDropdown = ({ onLogout, onChangePassword, onAbout }) => {
+const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const email = getUserEmail();
@@ -51,6 +52,13 @@ const ProfileDropdown = ({ onLogout, onChangePassword, onAbout }) => {
             >
               <Icon name="lock_reset" className="text-[20px] text-outline" />
               Change Password
+            </button>
+            <button
+              onClick={() => { setOpen(false); onAISettings(); }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
+            >
+              <Icon name="auto_awesome" className="text-[20px] text-outline" />
+              AI Settings
             </button>
             <button
               onClick={() => { setOpen(false); onAbout(); }}
@@ -233,6 +241,7 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
 
   return (
     <>
@@ -292,6 +301,7 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
                 onLogout={onLogout}
                 onChangePassword={() => setChangePasswordOpen(true)}
                 onAbout={() => setAboutOpen(true)}
+                onAISettings={() => setAiSettingsOpen(true)}
               />
             )}
           </div>
@@ -299,6 +309,7 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
       </header>
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
       <AboutPage open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <AISettingsDialog open={aiSettingsOpen} onOpenChange={setAiSettingsOpen} />
     </>
   );
 };

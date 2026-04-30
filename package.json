@@ -12,6 +12,7 @@
   "dependencies": {
     "@milkdown/crepe": "^7.20.0",
     "@milkdown/react": "^7.20.0",
+    "@mlc-ai/web-llm": "^0.2.83",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",

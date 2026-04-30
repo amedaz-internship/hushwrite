@@ -5,6 +5,8 @@ import Preview from "./Preview.jsx";
 import ExportNote from "./ExportNotes.jsx";
 import PassphraseModal from "./PassPhraseModal.jsx";
 import DeleteModal from "./DeleteModal.jsx";
+import AIActionsMenu from "./AIActionsMenu.jsx";
+import AISettingsDialog from "./AISettingsDialog.jsx";
 import { cn } from "@/lib/utils";
 import {
   getNote,
@@ -85,6 +87,7 @@ const Markdown = ({
 }) => {
   const editorContainerRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
 
   const { modal, open: openModal } = useModalQueue();
@@ -307,6 +310,10 @@ const Markdown = ({
           onCancel={modal.cancel}
         />
       )}
+      <AISettingsDialog
+        open={aiSettingsOpen}
+        onOpenChange={setAiSettingsOpen}
+      />
 
       {!hasNoteOpen ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
@@ -346,6 +353,14 @@ const Markdown = ({
               >
                 <Icon name="visibility" className="text-xl" />
               </button>
+              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
+              <AIActionsMenu
+                markdown={markdown}
+                setMarkdown={setMarkdown}
+                setTitle={setTitle}
+                vaultMode={vaultMode}
+                onOpenSettings={() => setAiSettingsOpen(true)}
+              />
             </>
           )}
         </div>

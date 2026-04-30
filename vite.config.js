@@ -18,7 +18,9 @@ export default defineConfig({
         enabled: true
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, 
+        // Cap precache size so the multi-MB WebLLM chunk is skipped — it
+        // loads on demand when AI is enabled and caches itself separately.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
 
       manifest: {
