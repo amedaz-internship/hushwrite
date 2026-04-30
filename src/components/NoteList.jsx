@@ -10,7 +10,7 @@ import {
 } from "../js/hwrite";
 import HwriteImportDialog from "./HwriteImportDialog";
 import { useVault } from "@/lib/vault";
-import { decryptContent } from "../js/crypto";
+import { decryptContent, encryptContent } from "../js/crypto";
 import { saveNote, getAllNotes } from "../js/db";
 
 const toBytes = (v) =>
@@ -62,6 +62,10 @@ const NoteList = ({
   const [gateError, setGateError] = useState(null);
   const [gateBusy, setGateBusy] = useState(false);
   const [vaultTitles, setVaultTitles] = useState({});
+  // Holds an unencrypted .hwrite import that's waiting for the vault to be
+  // unlocked. Once `isVaultUnlocked` flips true, the effect below encrypts
+  // and saves it automatically.
+  const [pendingVaultImport, setPendingVaultImport] = useState(null);
 
   const inVault = activeSection === "vault";
   const showGate = inVault && !vault.isVaultUnlocked;
@@ -114,6 +118,51 @@ const NoteList = ({
       cancelled = true;
     };
   }, [notes, vault.isVaultUnlocked, vault.vaultKey, vaultTitles]);
+
+  // Flush any pending vault import the moment the vault becomes unlocked.
+  useEffect(() => {
+    if (!pendingVaultImport) return;
+    if (!vault.isVaultUnlocked || !vault.vaultKey) return;
+    let cancelled = false;
+    (async () => {
+      const pending = pendingVaultImport;
+      try {
+        const now = new Date().toISOString();
+        const { ciphertext, iv } = await encryptContent(
+          pending.markdown,
+          vault.vaultKey,
+        );
+        const { ciphertext: titleCiphertext, iv: titleIv } =
+          await encryptContent(pending.title, vault.vaultKey);
+        await saveNote({
+          id: uuid4(),
+          ciphertext,
+          iv,
+          salt: vault.vaultSalt,
+          title: "",
+          titleCiphertext,
+          titleIv,
+          imageIds: pending.imageIds || [],
+          vault: true,
+          createdAt: pending.createdAt || now,
+          updatedAt: now,
+        });
+        if (cancelled) return;
+        setPendingVaultImport(null);
+        onNotesChanged?.(await getAllNotes());
+        toast.success(`"${pending.title}" added to your vault`);
+      } catch (err) {
+        if (!cancelled) {
+          setPendingVaultImport(null);
+          toast.error(err.message || "Could not import to vault");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVaultImport, vault.isVaultUnlocked, vault.vaultKey]);
 
   const handleGateSubmit = async (e) => {
     e.preventDefault();
@@ -286,6 +335,32 @@ const NoteList = ({
           onSubmit={handleGateSubmit}
           className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
         >
+          {pendingVaultImport && (
+            <div className="w-full rounded-lg border border-vault-primary/30 bg-primary-container/10 p-3 text-left">
+              <div className="flex items-start gap-2">
+                <Icon name="file_download" className="mt-0.5 text-base text-vault-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-vault-primary">
+                    Import waiting
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-on-surface-variant">
+                    "{pendingVaultImport.title}" will be added once the vault is{" "}
+                    {vault.hasVault ? "unlocked" : "created"}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingVaultImport(null);
+                      toast("Import cancelled");
+                    }}
+                    className="mt-1 text-[10px] font-medium uppercase tracking-wider text-outline transition-colors hover:text-error"
+                  >
+                    Cancel import
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-container/20 ring-1 ring-vault-primary/30">
             <Icon name="enhanced_encryption" className="text-xl text-vault-primary" />
           </div>
@@ -453,9 +528,59 @@ const NoteList = ({
               const raw = await decryptHwrite(parsed, undefined);
               // Move any inline data: images into the images store so the
               // editor receives a lightweight markdown string.
-              const { markdown } = await rehydrateInlineImages(raw);
+              const result = await rehydrateInlineImages(raw);
+              const markdown = result.markdown || "";
+              const imageIds = result.imageIds || [];
+
+              const titleText = parsed.title || "Untitled";
+
+              if (!vault.isVaultUnlocked) {
+                // Stash the parsed file; the unlock effect picks it up the
+                // moment the vault opens. Switch the user to the Vault tab so
+                // the gate UI is visible without forcing them back to Notes.
+                setPendingVaultImport({
+                  markdown,
+                  title: titleText,
+                  imageIds,
+                  createdAt: parsed.created,
+                });
+                setImportState(null);
+                onSectionChange?.("vault");
+                toast(
+                  vault.hasVault
+                    ? "Unlock your vault to finish importing"
+                    : "Create your vault to finish importing",
+                  { icon: "🔐" },
+                );
+                return;
+              }
+
+              const now = new Date().toISOString();
+              const { ciphertext, iv } = await encryptContent(
+                markdown,
+                vault.vaultKey,
+              );
+              const { ciphertext: titleCiphertext, iv: titleIv } =
+                await encryptContent(titleText, vault.vaultKey);
+
+              await saveNote({
+                id: uuid4(),
+                ciphertext,
+                iv,
+                salt: vault.vaultSalt,
+                title: "",
+                titleCiphertext,
+                titleIv,
+                imageIds,
+                vault: true,
+                createdAt: parsed.created || now,
+                updatedAt: parsed.modified || now,
+              });
+
               setImportState(null);
-              onImportNote?.({ markdown, title: parsed.title });
+              onNotesChanged?.(await getAllNotes());
+              onSectionChange?.("vault");
+              toast.success(`"${titleText}" added to your vault`);
             }
           }}
           onCancel={() => setImportState(null)}
