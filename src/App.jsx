@@ -110,6 +110,11 @@ const App = () => {
     setAuthed(false);
   };
 
+  const handleSignInRequest = () => {
+    localStorage.removeItem("hushwrite-skip-auth");
+    setAuthed(false);
+  };
+
   const handleSync = async () => {
     if (!isLoggedIn()) {
       toast.error("Sign in to sync notes");
@@ -143,7 +148,9 @@ const App = () => {
         onSync={handleSync}
         syncing={syncing}
         isOnline={isLoggedIn()}
+        isLocalOnly={!isLoggedIn()}
         onLogout={handleLogout}
+        onSignIn={handleSignInRequest}
       />
       <main className="flex flex-1 overflow-hidden">
         <NoteList

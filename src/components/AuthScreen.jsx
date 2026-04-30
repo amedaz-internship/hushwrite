@@ -368,15 +368,28 @@ const AuthScreen = ({ onAuth }) => {
           </div>
         )}
 
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={onAuth}
-            className="text-xs text-outline hover:text-on-surface-variant"
-          >
-            Skip — use offline only
-          </button>
+        <div className="relative my-2">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-outline-variant/30" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-surface px-3 text-[10px] font-semibold uppercase tracking-widest text-outline">
+              Or
+            </span>
+          </div>
         </div>
+
+        <button
+          type="button"
+          onClick={onAuth}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-vault-primary/40 bg-surface-container px-4 py-2.5 text-sm font-semibold text-vault-primary transition-all hover:bg-surface-container-high active:scale-95"
+        >
+          <Icon name="cloud_off" className="text-base" />
+          Continue locally
+        </button>
+        <p className="text-center text-[11px] text-outline">
+          Notes stay encrypted on this device. No account, no sync.
+        </p>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ const Icon = ({ name, className }) => (
   <span className={cn("material-symbols-outlined", className)}>{name}</span>
 );
 
-const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings }) => {
+const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings, onSignIn, isLocalOnly = false }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const email = getUserEmail();
@@ -39,20 +39,27 @@ const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings }) 
       </button>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-xl">
-          {email && (
+          {isLocalOnly ? (
+            <div className="border-b border-outline-variant/20 px-4 py-3">
+              <p className="text-xs font-medium text-on-surface-variant">Local only</p>
+              <p className="truncate text-sm font-semibold text-on-surface">No account · not synced</p>
+            </div>
+          ) : email && (
             <div className="border-b border-outline-variant/20 px-4 py-3">
               <p className="text-xs font-medium text-on-surface-variant">Signed in as</p>
               <p className="truncate text-sm font-semibold text-on-surface">{email}</p>
             </div>
           )}
           <div className="py-1">
-            <button
-              onClick={() => { setOpen(false); onChangePassword(); }}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
-            >
-              <Icon name="lock_reset" className="text-[20px] text-outline" />
-              Change Password
-            </button>
+            {!isLocalOnly && (
+              <button
+                onClick={() => { setOpen(false); onChangePassword(); }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
+              >
+                <Icon name="lock_reset" className="text-[20px] text-outline" />
+                Change Password
+              </button>
+            )}
             <button
               onClick={() => { setOpen(false); onAISettings(); }}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-on-surface transition-colors hover:bg-surface-container-high"
@@ -68,13 +75,23 @@ const ProfileDropdown = ({ onLogout, onChangePassword, onAbout, onAISettings }) 
               About
             </button>
             <div className="my-1 border-t border-outline-variant/20" />
-            <button
-              onClick={() => { setOpen(false); onLogout(); }}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-error transition-colors hover:bg-error/10"
-            >
-              <Icon name="logout" className="text-[20px]" />
-              Sign Out
-            </button>
+            {isLocalOnly ? (
+              <button
+                onClick={() => { setOpen(false); onSignIn?.(); }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-vault-primary transition-colors hover:bg-primary-container/20"
+              >
+                <Icon name="login" className="text-[20px]" />
+                Sign In
+              </button>
+            ) : (
+              <button
+                onClick={() => { setOpen(false); onLogout(); }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-error transition-colors hover:bg-error/10"
+              >
+                <Icon name="logout" className="text-[20px]" />
+                Sign Out
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -237,7 +254,7 @@ const AboutPage = ({ open, onClose }) => {
   );
 };
 
-const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, isOnline = false, onLogout }) => {
+const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, isOnline = false, isLocalOnly = false, onLogout, onSignIn }) => {
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -263,6 +280,19 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          {isLocalOnly && (
+            <button
+              onClick={onSignIn}
+              title="Sign in to sync your notes across devices"
+              className="flex items-center gap-1.5 rounded-lg border border-vault-primary/30 bg-primary-container/10 px-3 py-1.5 text-xs font-semibold text-vault-primary transition-all hover:bg-primary-container/20 active:scale-95"
+            >
+              <Icon name="cloud_off" className="text-sm" />
+              <span>Local only</span>
+              <span className="hidden text-[10px] font-medium uppercase tracking-wider text-vault-primary/70 sm:inline">
+                · Sign in to sync
+              </span>
+            </button>
+          )}
           <button
             onClick={onLock}
             disabled={!isUnlocked}
@@ -302,6 +332,8 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
                 onChangePassword={() => setChangePasswordOpen(true)}
                 onAbout={() => setAboutOpen(true)}
                 onAISettings={() => setAiSettingsOpen(true)}
+                onSignIn={onSignIn}
+                isLocalOnly={isLocalOnly}
               />
             )}
           </div>
