@@ -398,14 +398,20 @@ const NoteList = ({
                 <span
                   className={cn(
                     "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                    isActive && isNoteUnlocked
+                    (isActive && isNoteUnlocked) || (inVault && vault.isVaultUnlocked)
                       ? "bg-primary-container/20 text-vault-primary"
                       : isActive
                         ? "bg-surface-container-highest text-outline"
                         : "bg-surface-container-highest text-on-surface-variant",
                   )}
                 >
-                  {isActive ? (isNoteUnlocked ? "Open" : "Locked") : isEncrypted ? "Encrypted" : "Locked"}
+                  {inVault && vault.isVaultUnlocked
+                    ? (isActive ? "Open" : "Vault")
+                    : isActive
+                      ? (isNoteUnlocked ? "Open" : "Locked")
+                      : isEncrypted
+                        ? "Encrypted"
+                        : "Locked"}
                 </span>
               </div>
             </button>

@@ -88,6 +88,7 @@ const Markdown = ({
   const editorContainerRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [aiSnapshot, setAiSnapshot] = useState(null);
   const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
 
   const { modal, open: openModal } = useModalQueue();
@@ -136,7 +137,7 @@ const Markdown = ({
     (async () => {
       try {
         await switchToNote(selectedNote);
-        toast.success("Note unlocked");
+        if (!vaultMode) toast.success("Note unlocked");
       } catch (err) {
         if (!isQuietError(err) && err?.message) {
           /* surfaced inside locked card */
@@ -357,9 +358,12 @@ const Markdown = ({
               <AIActionsMenu
                 markdown={markdown}
                 setMarkdown={setMarkdown}
+                title={title}
                 setTitle={setTitle}
                 vaultMode={vaultMode}
                 onOpenSettings={() => setAiSettingsOpen(true)}
+                onSnapshot={(snapshot) => setAiSnapshot(snapshot)}
+                disabled={!!aiSnapshot}
               />
             </>
           )}
@@ -431,11 +435,41 @@ const Markdown = ({
           </form>
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="relative flex flex-1 overflow-hidden">
+          {aiSnapshot && (
+            <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
+              <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-vault-primary/30 bg-surface-container px-4 py-2 shadow-2xl shadow-vault-primary/20">
+                <div className="flex items-center gap-1.5 text-xs font-semibold tracking-tight text-vault-primary">
+                  <Icon name="auto_awesome" className="text-sm" />
+                  AI · {aiSnapshot.label}
+                </div>
+                <span className="h-4 w-px bg-outline-variant/30" />
+                <button
+                  onClick={() => {
+                    setMarkdown(aiSnapshot.markdown);
+                    setTitle(aiSnapshot.title);
+                    setAiSnapshot(null);
+                  }}
+                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold text-outline transition-all hover:bg-error/10 hover:text-error active:scale-95"
+                >
+                  <Icon name="close" className="text-sm" />
+                  Discard
+                </button>
+                <button
+                  onClick={() => setAiSnapshot(null)}
+                  className="flex items-center gap-1 rounded-full bg-vault-primary px-3 py-1 text-xs font-semibold text-on-primary-fixed transition-all hover:scale-[1.02] active:scale-95"
+                >
+                  <Icon name="check" className="text-sm" />
+                  Accept
+                </button>
+              </div>
+            </div>
+          )}
           <div
             className={cn(
               "flex flex-col overflow-y-auto px-12 py-12",
               showPreview ? "flex-1 border-r border-outline-variant/10" : "w-full",
+              aiSnapshot && "pt-20",
             )}
           >
             <div className="mx-auto w-full max-w-3xl">

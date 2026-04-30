@@ -44,9 +44,12 @@ const ACTIONS = [
 const AIActionsMenu = ({
   markdown,
   setMarkdown,
+  title = "",
   setTitle,
   vaultMode = false,
   onOpenSettings,
+  onSnapshot,
+  disabled = false,
 }) => {
   const ai = useAI();
   const [open, setOpen] = useState(false);
@@ -93,6 +96,12 @@ const AIActionsMenu = ({
       return;
     }
 
+    onSnapshot?.({
+      markdown: markdown || "",
+      title: title || "",
+      label: action.label,
+    });
+
     setBusy(true);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -122,7 +131,15 @@ const AIActionsMenu = ({
       });
 
       if (action.needsTitleSetter) {
-        const cleaned = result.replace(/^["'`]+|["'`]+$/g, "").replace(/\.$/, "");
+        const cleaned = result
+          .split("\n")[0]
+          .replace(/^\s*(?:title|note title)\s*[:\-–]\s*/i, "")
+          .replace(/^["'`*_]+|["'`*_]+$/g, "")
+          .replace(/[.!?,;:]+$/g, "")
+          .trim()
+          .split(/\s+/)
+          .slice(0, 6)
+          .join(" ");
         setTitle(cleaned);
         toast.success("Title generated", { id: toastId });
       } else {
@@ -161,9 +178,10 @@ const AIActionsMenu = ({
       ) : (
         <button
           onClick={() => setOpen((v) => !v)}
-          title="AI assist"
+          disabled={disabled}
+          title={disabled ? "Accept or discard pending AI change first" : "AI assist"}
           className={cn(
-            "flex items-center gap-1.5 rounded p-1.5 transition-all hover:bg-surface-container-high",
+            "flex items-center gap-1.5 rounded p-1.5 transition-all hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-40",
             isReady
               ? "text-vault-primary"
               : "text-outline hover:text-on-surface",

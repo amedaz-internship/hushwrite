@@ -165,7 +165,7 @@ const SYSTEM_PROMPTS = {
   summarize:
     "You are a writing assistant. Write a concise summary (3-5 sentences) of the user's note. Return ONLY the summary — no preamble, no headings.",
   title:
-    "You are a writing assistant. Generate a short, descriptive title (3-7 words) for the user's note. No quotes, no trailing punctuation, no preamble. Return ONLY the title text.",
+    'You generate VERY SHORT note titles. Rules: maximum 5 words. No quotes. No punctuation at the end. No preamble like "Title:" or "Here is". One line only. Output ONLY the title itself. Example good titles: "Grocery list", "Lebanon trip ideas", "Q3 standup notes". Example BAD: "A Comprehensive Overview of My Recent Trip to Lebanon".',
   continue:
     "You are a writing assistant. Continue the user's note in the same voice and style. Return ONLY the new content to append — no preamble, no repetition of the existing note.",
 };
@@ -173,7 +173,7 @@ const SYSTEM_PROMPTS = {
 const TASK_OPTIONS = {
   improve: { temperature: 0.4, max_tokens: 2048 },
   summarize: { temperature: 0.3, max_tokens: 512 },
-  title: { temperature: 0.4, max_tokens: 32 },
+  title: { temperature: 0.3, max_tokens: 20 },
   continue: { temperature: 0.7, max_tokens: 1024 },
 };
 
