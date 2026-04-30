@@ -92,14 +92,21 @@ export const ensureLoaded = async () => {
         new URL("../workers/ai.worker.js", import.meta.url),
         { type: "module" },
       );
-      engine = await CreateWebWorkerMLCEngine(worker, AI_MODEL_ID, {
-        initProgressCallback: (p) => {
-          emit({
-            progress: typeof p?.progress === "number" ? p.progress : 0,
-            progressText: p?.text || "",
-          });
+      engine = await CreateWebWorkerMLCEngine(
+        worker,
+        AI_MODEL_ID,
+        {
+          initProgressCallback: (p) => {
+            emit({
+              progress: typeof p?.progress === "number" ? p.progress : 0,
+              progressText: p?.text || "",
+            });
+          },
         },
-      });
+        // chatOpts: bump runtime context so longer notes fit (rewrite +
+        // summarize on multi-thousand-word notes blew past the 4k default).
+        { context_window_size: 8192 },
+      );
       emit({ status: "ready", progress: 1, progressText: "Ready" });
       return engine;
     } catch (err) {
