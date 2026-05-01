@@ -378,10 +378,17 @@ const Markdown = ({
   // Younger notes force a passphrase verify to prevent casual wipes.
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
   const currentNoteMeta = notes.find((n) => n.id === currentId);
-  const noteAgeMs = currentNoteMeta?.createdAt
-    ? Date.now() - new Date(currentNoteMeta.createdAt).getTime()
-    : 0;
+  const noteCreatedAt = currentNoteMeta?.createdAt
+    ? new Date(currentNoteMeta.createdAt)
+    : null;
+  const noteAgeMs = noteCreatedAt ? Date.now() - noteCreatedAt.getTime() : 0;
   const canDeleteWithoutUnlock = noteAgeMs >= THIRTY_DAYS_MS;
+  const eligibleDeleteDate = noteCreatedAt
+    ? new Date(noteCreatedAt.getTime() + THIRTY_DAYS_MS)
+    : null;
+  const daysUntilEligible = eligibleDeleteDate
+    ? Math.max(0, Math.ceil((eligibleDeleteDate - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
 
   const [inlinePassphrase, setInlinePassphrase] = useState("");
   const [unlockPending, setUnlockPending] = useState(false);
@@ -592,7 +599,7 @@ const Markdown = ({
               <Icon name="lock_open" className="text-sm" />
               Unlock note
             </button>
-            {canDeleteWithoutUnlock && (
+            {canDeleteWithoutUnlock ? (
               <button
                 type="button"
                 onClick={handleDelete}
@@ -602,7 +609,23 @@ const Markdown = ({
                 <Icon name="delete" className="text-sm" />
                 Delete without unlocking
               </button>
-            )}
+            ) : eligibleDeleteDate ? (
+              <p className="max-w-xs text-center text-[11px] leading-snug text-on-surface-variant/80">
+                <Icon name="info" className="mr-1 align-[-2px] text-xs" />
+                Forgot your passphrase? You'll be able to delete this note
+                without it in{" "}
+                <span className="font-semibold text-on-surface-variant">
+                  {daysUntilEligible} day{daysUntilEligible === 1 ? "" : "s"}
+                </span>{" "}
+                (on{" "}
+                {eligibleDeleteDate.toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+                ).
+              </p>
+            ) : null}
           </form>
         </div>
       ) : (
