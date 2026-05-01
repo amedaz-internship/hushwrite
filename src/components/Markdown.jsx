@@ -206,7 +206,12 @@ const Markdown = ({
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiSnapshot, setAiSnapshot] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
-  const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
+  const {
+    isVaultUnlocked,
+    vaultKey,
+    vaultSalt,
+    changeVaultPassphrase,
+  } = useVault();
 
   const { modal, open: openModal } = useModalQueue();
   const askPassphrase = (mode) => openModal({ type: "passphrase", mode });
@@ -281,6 +286,27 @@ const Markdown = ({
       if (!isQuietError(err)) toast.error(err.message);
     }
   };
+
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
+  // Cmd/Ctrl+S → save the current note (intercepts the browser's "Save Page"
+  // dialog). Copy / cut / paste / undo / redo are handled natively by the
+  // textarea and the Milkdown editor — no rebinding needed here.
+  useEffect(() => {
+    const handler = (e) => {
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && (e.key === "s" || e.key === "S")) {
+        e.preventDefault();
+        if (saveStatus === "locked") return;
+        onSave();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveStatus, markdown, title, currentId, isMac]);
 
   const handleDelete = async () => {
     if (!currentId) return toast.error("No note selected!");
@@ -439,8 +465,9 @@ const Markdown = ({
         markdown={markdown}
         title={title}
         vaultMode={vaultMode}
-        isUnlocked={isUnlocked()}
+        isUnlocked={vaultMode ? isVaultUnlocked : isUnlocked()}
         onChangePassphrase={changePassphrase}
+        onChangeVaultPassphrase={changeVaultPassphrase}
       />
 
       {!hasNoteOpen ? (
@@ -681,10 +708,29 @@ const Markdown = ({
       {!isLocked && (
         <button
           onClick={onSave}
-          title="Save to vault"
-          className="absolute bottom-8 right-8 flex h-14 w-14 items-center justify-center rounded-full bg-vault-primary text-on-primary-fixed shadow-2xl shadow-vault-primary/20 transition-all hover:scale-105 active:scale-95"
+          disabled={saveStatus === "saving"}
+          aria-label="Save note"
+          title={`Save (${isMac ? "⌘" : "Ctrl+"}S)`}
+          className={cn(
+            "group absolute bottom-8 right-8 flex items-center gap-2.5 rounded-full bg-vault-primary py-3 pl-4 pr-3 text-on-primary-fixed shadow-2xl shadow-vault-primary/30 transition-all duration-200",
+            "hover:scale-[1.03] hover:shadow-vault-primary/40 active:scale-95",
+            "disabled:cursor-not-allowed disabled:opacity-70",
+          )}
         >
-          <Icon name="save" className="text-3xl" fill />
+          <Icon
+            name={saveStatus === "saving" ? "progress_activity" : "save"}
+            className={cn(
+              "text-xl",
+              saveStatus === "saving" && "animate-spin",
+            )}
+            fill
+          />
+          <span className="text-sm font-semibold tracking-tight">
+            {saveStatus === "saving" ? "Saving" : "Save"}
+          </span>
+          <kbd className="rounded-md bg-on-primary-fixed/15 px-1.5 py-0.5 font-sans text-[10px] font-semibold tracking-wide">
+            {isMac ? "⌘S" : "Ctrl+S"}
+          </kbd>
         </button>
       )}
       </>

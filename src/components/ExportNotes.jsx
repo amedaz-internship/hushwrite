@@ -392,6 +392,7 @@ const ExportNote = ({ note }) => {
         size="sm"
         onClick={exportAsMD}
         disabled={!note.content?.trim()}
+        title="Export as a plain Markdown (.md) file. Warning: this file is NOT encrypted — it leaves HushWrite's encryption protection."
       >
         <FileText className="mr-1.5 h-4 w-4" />
         .MD
@@ -401,6 +402,7 @@ const ExportNote = ({ note }) => {
         size="sm"
         onClick={exportAsPDF}
         disabled={!note.content?.trim() || exporting}
+        title="Export as a printable PDF document. Warning: this file is NOT encrypted — it leaves HushWrite's encryption protection."
       >
         <FileDown className="mr-1.5 h-4 w-4" />
         PDF
@@ -410,6 +412,7 @@ const ExportNote = ({ note }) => {
         size="sm"
         onClick={() => setHwriteOpen(true)}
         disabled={!note.content?.trim()}
+        title="Export as a .hwrite file — HushWrite's portable format. Stays encrypted with the passphrase you choose, so it remains protected outside the app."
       >
         <FileLock2 className="mr-1.5 h-4 w-4" />
         .hwrite

@@ -37,6 +37,7 @@ const NoteInfoDialog = ({
   vaultMode,
   isUnlocked,
   onChangePassphrase,
+  onChangeVaultPassphrase,
 }) => {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -68,8 +69,17 @@ const NoteInfoDialog = ({
     }
     setWorking(true);
     try {
-      await onChangePassphrase(newPassphrase);
-      toast.success("Passphrase updated");
+      if (vaultMode) {
+        const count = await onChangeVaultPassphrase(newPassphrase);
+        toast.success(
+          typeof count === "number"
+            ? `Vault passphrase updated · ${count} note${count === 1 ? "" : "s"} re-encrypted`
+            : "Vault passphrase updated",
+        );
+      } else {
+        await onChangePassphrase(newPassphrase);
+        toast.success("Passphrase updated");
+      }
       reset();
       onOpenChange(false);
     } catch (err) {
@@ -106,17 +116,14 @@ const NoteInfoDialog = ({
           <div className="mb-3 flex items-center gap-2">
             <Icon name="key" className="text-base text-vault-primary" />
             <h4 className="text-sm font-semibold text-on-surface">
-              Change passphrase
+              {vaultMode ? "Change vault passphrase" : "Change passphrase"}
             </h4>
           </div>
-          {vaultMode ? (
+          {!isUnlocked ? (
             <p className="text-xs text-on-surface-variant">
-              This note lives in the vault and shares the vault passphrase.
-              Change it from the vault settings instead.
-            </p>
-          ) : !isUnlocked ? (
-            <p className="text-xs text-on-surface-variant">
-              Unlock this note first to change its passphrase.
+              {vaultMode
+                ? "Unlock the vault first to change its passphrase."
+                : "Unlock this note first to change its passphrase."}
             </p>
           ) : (
             <form onSubmit={submitChange} className="flex flex-col gap-2">
@@ -140,11 +147,18 @@ const NoteInfoDialog = ({
                 className="mt-1 flex items-center justify-center gap-2 rounded-md bg-vault-primary px-4 py-2 text-sm font-medium text-on-primary-fixed transition-all hover:scale-[1.01] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Icon name={working ? "progress_activity" : "lock_reset"} className={cn("text-sm", working && "animate-spin")} />
-                {working ? "Updating…" : "Update passphrase"}
+                {working
+                  ? vaultMode
+                    ? "Re-encrypting vault…"
+                    : "Updating…"
+                  : vaultMode
+                    ? "Update vault passphrase"
+                    : "Update passphrase"}
               </button>
               <p className="mt-1 text-[11px] leading-snug text-on-surface-variant/80">
-                The note will be re-encrypted under the new passphrase. Make
-                sure to remember it — there is no recovery.
+                {vaultMode
+                  ? "Every note in the vault will be re-encrypted under the new passphrase. Make sure to remember it — there is no recovery."
+                  : "The note will be re-encrypted under the new passphrase. Make sure to remember it — there is no recovery."}
               </p>
             </form>
           )}

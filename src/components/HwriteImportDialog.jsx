@@ -117,8 +117,8 @@ const HwriteImportDialog = ({
 
             <p className="rounded-md bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
               {parsed.encrypted
-                ? "Stored encrypted in your library. The export passphrase will be required the first time you open it."
-                : "Loaded into the editor as a new draft. Save it with your own passphrase to add it to your library."}
+                ? "Stored encrypted in your library. The export passphrase will be required the first time you open it. You can change it later from the note's info menu."
+                : "Loaded into the editor as a new draft. Save it with your own passphrase to add it to your library. You can change it later from the note's info menu."}
             </p>
 
             {error && (
