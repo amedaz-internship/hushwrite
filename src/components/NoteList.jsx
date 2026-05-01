@@ -445,22 +445,53 @@ const NoteList = ({
                 : "Encrypted note";
           const isEncrypted = !resolved && !isActive;
           const preview = isEncrypted ? "Locked — unlock to view contents" : "";
+          const statusLabel =
+            inVault && vault.isVaultUnlocked
+              ? isActive
+                ? "Open"
+                : "Vault"
+              : isActive
+                ? isNoteUnlocked
+                  ? "Open"
+                  : "Locked"
+                : isEncrypted
+                  ? "Encrypted"
+                  : "Locked";
+          const statusActive =
+            (isActive && isNoteUnlocked) || (inVault && vault.isVaultUnlocked);
           return (
             <button
               key={note.id}
               onClick={() => onSelectNote(note)}
+              aria-current={isActive ? "true" : undefined}
               className={cn(
-                "block w-full cursor-pointer border-l-2 p-4 text-left transition-all",
+                "group relative block w-full cursor-pointer overflow-hidden border-l-[3px] p-4 text-left transition-all duration-200",
                 isActive
-                  ? "border-vault-primary bg-surface-container-high/50"
+                  ? "border-vault-primary bg-gradient-to-r from-vault-primary/12 via-vault-primary/6 to-transparent shadow-[inset_0_0_0_1px_var(--md-sys-color-vault-primary,rgba(124,77,255,0.2))]"
                   : "border-transparent hover:bg-surface-container",
               )}
             >
+              {isActive && (
+                <span
+                  aria-hidden
+                  className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r bg-vault-primary shadow-[0_0_12px_rgba(124,77,255,0.6)]"
+                />
+              )}
               <div className="mb-1 flex items-start justify-between gap-2">
-                <h3 className="truncate text-sm font-semibold text-on-surface">
+                <h3
+                  className={cn(
+                    "truncate text-sm font-semibold transition-colors",
+                    isActive ? "text-vault-primary" : "text-on-surface",
+                  )}
+                >
                   {displayTitle}
                 </h3>
-                <span className="whitespace-nowrap text-[10px] text-outline">
+                <span
+                  className={cn(
+                    "whitespace-nowrap text-[10px] tabular-nums",
+                    isActive ? "text-vault-primary/70" : "text-outline",
+                  )}
+                >
                   {formatTimestamp(note.updatedAt || note.createdAt)}
                 </span>
               </div>
@@ -469,25 +500,33 @@ const NoteList = ({
                   {preview}
                 </p>
               )}
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-                    (isActive && isNoteUnlocked) || (inVault && vault.isVaultUnlocked)
-                      ? "bg-primary-container/20 text-vault-primary"
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                    statusActive
+                      ? "bg-vault-primary/15 text-vault-primary ring-1 ring-vault-primary/30"
                       : isActive
                         ? "bg-surface-container-highest text-outline"
                         : "bg-surface-container-highest text-on-surface-variant",
                   )}
                 >
-                  {inVault && vault.isVaultUnlocked
-                    ? (isActive ? "Open" : "Vault")
-                    : isActive
-                      ? (isNoteUnlocked ? "Open" : "Locked")
-                      : isEncrypted
-                        ? "Encrypted"
-                        : "Locked"}
+                  <span
+                    className={cn(
+                      "inline-block h-1.5 w-1.5 rounded-full",
+                      statusActive
+                        ? "bg-vault-primary shadow-[0_0_6px_rgba(124,77,255,0.8)]"
+                        : "bg-outline/60",
+                    )}
+                  />
+                  {statusLabel}
                 </span>
+                {isActive && isNoteUnlocked && (
+                  <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-vault-primary/70">
+                    <Icon name="edit" className="text-[12px]" />
+                    Editing
+                  </span>
+                )}
               </div>
             </button>
           );
