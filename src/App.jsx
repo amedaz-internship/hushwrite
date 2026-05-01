@@ -84,6 +84,7 @@ const App = () => {
     setCurrentId(null);
     setTitle(t || "Untitled");
     setMarkdown(md || "");
+    setIsComposingNew(true);
     toast.success("Imported. Save to encrypt with your passphrase.");
   };
 
