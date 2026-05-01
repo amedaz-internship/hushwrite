@@ -326,6 +326,50 @@ export function useNoteSession({
     ],
   );
 
+  // Re-encrypt the current note under a brand-new passphrase. Requires the
+  // session to be unlocked (so the existing key is in memory) and the note
+  // to already exist on disk. Vault notes are rejected — their key is owned
+  // by the vault, not the individual note.
+  const changePassphrase = useCallback(
+    async (newPassphrase) => {
+      if (!currentId) throw new Error("No note selected.");
+      if (!isUnlocked()) throw new Error("Unlock the note first.");
+      if (!newPassphrase || !newPassphrase.trim()) {
+        throw new Error("Enter a new passphrase.");
+      }
+      const note = await getNote(currentId);
+      if (!note) throw new Error("Note not found.");
+      if (note.vault === true) {
+        throw new Error("Vault notes share the vault passphrase.");
+      }
+
+      const trimmedTitle = (title || "").trim();
+      const newSalt = generateSalt();
+      const newKey = await deriveKey(newPassphrase, newSalt);
+      const { ciphertext, iv } = await encryptContent(markdown, newKey);
+      const { ciphertext: titleCiphertext, iv: titleIv } =
+        await encryptContent(trimmedTitle, newKey);
+
+      await saveNote({
+        ...note,
+        ciphertext,
+        iv,
+        salt: newSalt,
+        title: trimmedTitle,
+        titleCiphertext,
+        titleIv,
+        updatedAt: new Date().toISOString(),
+      });
+
+      sessionKeyRef.current = newKey;
+      sessionSaltRef.current = newSalt;
+      lastSavedRef.current = { markdown, title: trimmedTitle };
+      setNotes(await getAllNotes());
+      setSaveStatus("saved");
+    },
+    [currentId, isUnlocked, markdown, title, setNotes],
+  );
+
   const saveManual = useCallback(async () => {
     // Existing notes reuse their own derived key+salt — we can't change
     // the passphrase of an already-encrypted note through a normal save.
@@ -521,6 +565,7 @@ export function useNoteSession({
     unlockCurrent,
     switchToNote,
     saveManual,
+    changePassphrase,
     deleteCurrent,
     deleteVaultNote,
     forceDeleteCurrent,

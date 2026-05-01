@@ -7,6 +7,7 @@ import PassphraseModal from "./PassPhraseModal.jsx";
 import DeleteModal from "./DeleteModal.jsx";
 import AIActionsMenu from "./AIActionsMenu.jsx";
 import AISettingsDialog from "./AISettingsDialog.jsx";
+import NoteInfoDialog from "./NoteInfoDialog.jsx";
 import { cn } from "@/lib/utils";
 import {
   getNote,
@@ -31,7 +32,7 @@ const Icon = ({ name, className, fill }) => (
   </span>
 );
 
-const SaveStatus = ({ status }) => {
+const SaveStatus = ({ status, vaultMode }) => {
   switch (status) {
     case "saving":
       return (
@@ -44,7 +45,7 @@ const SaveStatus = ({ status }) => {
       return (
         <div className="flex items-center gap-1.5 text-on-surface-variant">
           <Icon name="check_circle" className="text-sm" fill />
-          <span>SAVED TO VAULT</span>
+          <span>{vaultMode ? "SAVED · VAULT" : "SAVED"}</span>
         </div>
       );
     case "dirty":
@@ -89,6 +90,7 @@ const Markdown = ({
   const [showPreview, setShowPreview] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiSnapshot, setAiSnapshot] = useState(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const { isVaultUnlocked, vaultKey, vaultSalt } = useVault();
 
   const { modal, open: openModal } = useModalQueue();
@@ -107,6 +109,7 @@ const Markdown = ({
     unlockCurrent,
     switchToNote,
     saveManual,
+    changePassphrase,
     deleteCurrent,
     deleteVaultNote,
     forceDeleteCurrent,
@@ -315,6 +318,15 @@ const Markdown = ({
         open={aiSettingsOpen}
         onOpenChange={setAiSettingsOpen}
       />
+      <NoteInfoDialog
+        open={infoOpen}
+        onOpenChange={setInfoOpen}
+        markdown={markdown}
+        title={title}
+        vaultMode={vaultMode}
+        isUnlocked={isUnlocked()}
+        onChangePassphrase={changePassphrase}
+      />
 
       {!hasNoteOpen ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
@@ -344,17 +356,6 @@ const Markdown = ({
                 </>
               )}
               <div className="mx-1 h-4 w-px bg-outline-variant/30" />
-              <button
-                onClick={() => setShowPreview((v) => !v)}
-                title={showPreview ? "Hide preview" : "Show preview"}
-                className={cn(
-                  "rounded p-1.5 transition-all hover:bg-surface-container-high",
-                  showPreview ? "text-vault-primary" : "text-outline hover:text-on-surface",
-                )}
-              >
-                <Icon name="visibility" className="text-xl" />
-              </button>
-              <div className="mx-1 h-4 w-px bg-outline-variant/30" />
               <AIActionsMenu
                 markdown={markdown}
                 setMarkdown={setMarkdown}
@@ -368,10 +369,38 @@ const Markdown = ({
             </>
           )}
         </div>
-        <div className="flex items-center gap-4 text-[11px] font-medium text-on-surface-variant">
-          <SaveStatus status={saveStatus} />
-          <span className="opacity-30">|</span>
-          <span>{wordCount.toLocaleString()} WORDS</span>
+        <div className="flex items-center gap-3 text-[11px] font-medium text-on-surface-variant">
+          <span className="tabular-nums tracking-wide">
+            {wordCount.toLocaleString()} WORDS
+          </span>
+          <div className="flex items-center gap-1 rounded-full bg-surface-container-low px-2.5 py-1">
+            <SaveStatus status={saveStatus} vaultMode={vaultMode} />
+            {currentId && saveStatus !== "locked" && (
+              <button
+                onClick={() => setInfoOpen(true)}
+                title="Note info & passphrase"
+                aria-label="Note info"
+                className="ml-0.5 rounded-full p-0.5 text-outline transition-colors hover:text-vault-primary"
+              >
+                <Icon name="info" className="text-sm" />
+              </button>
+            )}
+          </div>
+          {!isLocked && (
+            <button
+              onClick={() => setShowPreview((v) => !v)}
+              title={showPreview ? "Hide markdown" : "Show markdown"}
+              aria-label="Toggle markdown view"
+              className={cn(
+                "rounded-full p-1.5 transition-all hover:bg-surface-container-high",
+                showPreview
+                  ? "bg-vault-primary/10 text-vault-primary"
+                  : "text-outline hover:text-on-surface",
+              )}
+            >
+              <Icon name="visibility" className="text-base" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -489,8 +518,8 @@ const Markdown = ({
             </div>
           </div>
           {showPreview && (
-            <div className="flex w-[42%] flex-col overflow-hidden bg-surface-container-low p-6">
-              <Preview markdown={markdown} />
+            <div className="flex w-[42%] flex-col overflow-y-auto bg-surface-container-low p-6">
+              <Preview markdown={markdown} onChange={setMarkdown} />
             </div>
           )}
         </div>
