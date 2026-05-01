@@ -70,6 +70,63 @@ const SaveStatus = ({ status, vaultMode }) => {
 const isQuietError = (err) =>
   err?.message === "cancelled" || err?.message === "superseded";
 
+// Walk the markdown source line-by-line and assign every line a "block
+// index" — top-level chunks separated by blank lines, with fenced code
+// treated as a single block. Milkdown renders one DOM child per such
+// block, so the index lets us map a textarea line to a Milkdown node and
+// vice-versa without parsing the doc.
+const buildLineBlockMap = (markdown) => {
+  const lines = (markdown || "").split("\n");
+  const lineToBlock = new Array(lines.length || 1).fill(0);
+  const blockStartLine = [0];
+  let block = -1;
+  let prevEmpty = true;
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const isFenceMarker = trimmed.startsWith("```");
+    if (isFenceMarker && !inFence) {
+      block++;
+      blockStartLine[block] = i;
+      inFence = true;
+      prevEmpty = false;
+    } else if (isFenceMarker && inFence) {
+      inFence = false;
+      prevEmpty = false;
+    } else if (inFence) {
+      // stay in current block
+    } else if (!trimmed) {
+      prevEmpty = true;
+    } else if (prevEmpty) {
+      block++;
+      blockStartLine[block] = i;
+      prevEmpty = false;
+    }
+    lineToBlock[i] = Math.max(0, block);
+  }
+  return { lineToBlock, blockStartLine };
+};
+
+const stripBrLines = (md) =>
+  (md || "").replace(/^\s*<br\s*\/?>\s*$/gim, "");
+
+const findEditorBlockEls = (host) => {
+  if (!host) return [];
+  const pm = host.querySelector(".ProseMirror");
+  if (!pm) return [];
+  return Array.from(pm.children).filter((el) => {
+    if (el.classList?.contains("ProseMirror-trailingBreak")) return false;
+    if (
+      el.tagName === "P" &&
+      !el.textContent.trim() &&
+      el.querySelector(":scope > br")
+    ) {
+      return false;
+    }
+    return true;
+  });
+};
+
 const Markdown = ({
   selectedNote,
   markdown,
@@ -87,6 +144,64 @@ const Markdown = ({
   isComposingNew = false,
 }) => {
   const editorContainerRef = useRef(null);
+  const editorScrollRef = useRef(null);
+  const previewScrollRef = useRef(null);
+  const syncingScrollRef = useRef(false);
+  const lineMapRef = useRef({ lineToBlock: [0], blockStartLine: [0] });
+
+  useEffect(() => {
+    // Build the map from the cleaned markdown so textarea line numbers
+    // (which never see <br /> filler) map onto the same blocks the editor
+    // shows.
+    lineMapRef.current = buildLineBlockMap(stripBrLines(markdown));
+  }, [markdown]);
+
+  const PREVIEW_LINE_HEIGHT = 22.75;
+
+  const scrollEditorToLine = (line) => {
+    const host = editorContainerRef.current;
+    const scroller = editorScrollRef.current;
+    if (!host || !scroller) return;
+    const blocks = findEditorBlockEls(host);
+    if (!blocks.length) return;
+    const { lineToBlock } = lineMapRef.current;
+    const idx = Math.min(
+      blocks.length - 1,
+      Math.max(0, lineToBlock[Math.max(0, line - 1)] ?? 0),
+    );
+    const el = blocks[idx];
+    if (!el) return;
+    const containerRect = scroller.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const target =
+      scroller.scrollTop + (elRect.top - containerRect.top) - 120;
+    syncingScrollRef.current = true;
+    scroller.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  };
+
+  const scrollPreviewToBlock = (blockIdx) => {
+    const ta = previewScrollRef.current;
+    if (!ta) return;
+    const { blockStartLine } = lineMapRef.current;
+    const line =
+      blockStartLine[Math.min(blockStartLine.length - 1, blockIdx)] ?? 0;
+    const target = line * PREVIEW_LINE_HEIGHT - 80;
+    syncingScrollRef.current = true;
+    ta.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  };
+
+  const handleEditorClick = (e) => {
+    const host = editorContainerRef.current;
+    if (!host) return;
+    const blocks = findEditorBlockEls(host);
+    if (!blocks.length) return;
+    let node = e.target;
+    while (node && node !== host && !blocks.includes(node)) node = node.parentNode;
+    if (!node || node === host) return;
+    const idx = blocks.indexOf(node);
+    if (idx < 0) return;
+    scrollPreviewToBlock(idx);
+  };
   const [showPreview, setShowPreview] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiSnapshot, setAiSnapshot] = useState(null);
@@ -495,6 +610,20 @@ const Markdown = ({
             </div>
           )}
           <div
+            ref={editorScrollRef}
+            onScroll={(e) => {
+              if (syncingScrollRef.current) {
+                syncingScrollRef.current = false;
+                return;
+              }
+              const src = e.currentTarget;
+              const dst = previewScrollRef.current;
+              if (!dst) return;
+              const denom = src.scrollHeight - src.clientHeight;
+              const ratio = denom > 0 ? src.scrollTop / denom : 0;
+              syncingScrollRef.current = true;
+              dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight);
+            }}
             className={cn(
               "flex flex-col overflow-y-auto px-12 py-12",
               showPreview ? "flex-1 border-r border-outline-variant/10" : "w-full",
@@ -509,7 +638,11 @@ const Markdown = ({
                 onChange={(e) => setTitle(e.target.value)}
                 className="mb-8 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-on-surface placeholder-outline-variant outline-none focus:ring-0"
               />
-              <div ref={editorContainerRef} className="milkdown-host">
+              <div
+                ref={editorContainerRef}
+                onClick={handleEditorClick}
+                className="milkdown-host"
+              >
                 <MilkdownEditor
                   markdown={markdown}
                   onChange={(val) => setMarkdown(val || "")}
@@ -519,7 +652,26 @@ const Markdown = ({
           </div>
           {showPreview && (
             <div className="flex w-[42%] flex-col overflow-y-auto bg-surface-container-low p-6">
-              <Preview markdown={markdown} onChange={setMarkdown} />
+              <Preview
+                markdown={markdown}
+                onChange={setMarkdown}
+                scrollRef={(node) => {
+                  previewScrollRef.current = node;
+                }}
+                onCursorLineChange={scrollEditorToLine}
+                onScrollSync={(src) => {
+                  if (syncingScrollRef.current) {
+                    syncingScrollRef.current = false;
+                    return;
+                  }
+                  const dst = editorScrollRef.current;
+                  if (!dst) return;
+                  const denom = src.scrollHeight - src.clientHeight;
+                  const ratio = denom > 0 ? src.scrollTop / denom : 0;
+                  syncingScrollRef.current = true;
+                  dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight);
+                }}
+              />
             </div>
           )}
         </div>

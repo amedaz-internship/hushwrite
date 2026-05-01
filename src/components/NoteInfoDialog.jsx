@@ -45,11 +45,9 @@ const NoteInfoDialog = ({
   const stats = useMemo(() => {
     const text = markdown || "";
     const characters = text.length;
-    const charactersNoSpaces = text.replace(/\s/g, "").length;
     const trimmed = text.replace(/[#*`>_\-[\]()!]/g, " ").trim();
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
-    const lines = text ? text.split("\n").length : 0;
-    return { characters, charactersNoSpaces, words, lines };
+    return { characters, words };
   }, [markdown]);
 
   const reset = () => {
@@ -102,8 +100,6 @@ const NoteInfoDialog = ({
         <div className="grid grid-cols-2 gap-2">
           <Stat label="Words" value={stats.words} />
           <Stat label="Characters" value={stats.characters} />
-          <Stat label="No spaces" value={stats.charactersNoSpaces} />
-          <Stat label="Lines" value={stats.lines} />
         </div>
 
         <div className="mt-2 rounded-lg border border-outline-variant/20 bg-surface-container-low p-4">
