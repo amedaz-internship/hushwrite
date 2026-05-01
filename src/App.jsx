@@ -3,16 +3,15 @@ import toast, { Toaster } from "react-hot-toast";
 import TopNav from "./components/TopNav";
 import NoteList from "./components/NoteList";
 import Markdown from "./components/Markdown";
-import AuthScreen from "./components/AuthScreen";
+import BackupPanel from "./components/BackupPanel";
 import { getAllNotes } from "./js/db";
 import { VaultProvider } from "./lib/vault";
 import { isLoggedIn, clearAuth } from "./js/api";
-import { syncNotes } from "./js/sync";
+import { getCloudState, resetBackupPointers } from "./js/backup";
+
+const POLL_INTERVAL_MS = 30 * 1000;
 
 const App = () => {
-  const [authed, setAuthed] = useState(isLoggedIn() || !!localStorage.getItem("hushwrite-skip-auth"));
-  const [syncing, setSyncing] = useState(false);
-
   const [markdown, setMarkdown] = useState("");
   const [currentId, setCurrentId] = useState(null);
   const [title, setTitle] = useState("");
@@ -20,35 +19,51 @@ const App = () => {
   const [selectedNote, setSelectedNote] = useState(null);
   const [activeSection, setActiveSection] = useState("notes");
   const [isComposingNew, setIsComposingNew] = useState(false);
-
-  // Once a brand-new note gets persisted (currentId flips from null to a
-  // real id) or the user picks a different note, the synthetic draft entry
-  // in the sidebar is no longer needed.
-  useEffect(() => {
-    if (currentId) setIsComposingNew(false);
-  }, [currentId]);
-  // Session-only cache of plaintext titles keyed by note id. Populated
-  // when a note is unlocked or saved so the sidebar can show real titles
-  // instead of "Encrypted note". Cleared on reload — never persisted.
   const [titleCache, setTitleCache] = useState({});
 
-  // Imperative hooks into the editor so TopNav + Sidebar can trigger
-  // session actions without prop-drilling a shared reducer.
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [cloud, setCloud] = useState({ state: "loading", latest: null });
+
   const lockRef = useRef(() => {});
   const isUnlockedRef = useRef(() => false);
-  // Re-render on status changes so TopNav reflects lock state.
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (currentId) setIsComposingNew(false);
+  }, [currentId]);
+
   const loadNotes = async () => setNotes(await getAllNotes());
   useEffect(() => {
     loadNotes();
   }, []);
 
-  // Keep titleCache in sync with the currently-open note's plaintext title.
+  // Poll cloud state in the background. Cheap (manifest only) and gives the
+  // TopNav badge live awareness of other devices' activity.
+  const refreshCloud = async () => {
+    try {
+      const result = await getCloudState();
+      setCloud(result);
+    } catch (err) {
+      setCloud({ state: "error", error: err.message });
+    }
+  };
+
+  useEffect(() => {
+    refreshCloud();
+    const id = setInterval(refreshCloud, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Recompute cloud state whenever local notes change so the badge reflects
+  // unbacked-up edits immediately.
+  useEffect(() => {
+    refreshCloud();
+  }, [notes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!currentId || !title.trim()) return;
     setTitleCache((prev) =>
@@ -56,7 +71,6 @@ const App = () => {
     );
   }, [currentId, title]);
 
-  // Prune cache entries for deleted notes.
   useEffect(() => {
     setTitleCache((prev) => {
       const ids = new Set(notes.map((n) => n.id));
@@ -98,46 +112,25 @@ const App = () => {
     handleNewNote();
   };
 
-  const handleAuth = () => {
-    if (!isLoggedIn()) {
-      localStorage.setItem("hushwrite-skip-auth", "1");
-    }
-    setAuthed(true);
-  };
-
   const handleLogout = () => {
     clearAuth();
-    localStorage.removeItem("hushwrite-skip-auth");
-    setAuthed(false);
+    resetBackupPointers();
+    refreshCloud();
+    toast.success("Signed out");
   };
 
-  const handleSignInRequest = () => {
-    localStorage.removeItem("hushwrite-skip-auth");
-    setAuthed(false);
+  const handleOpenBackup = () => {
+    setBackupOpen(true);
   };
 
-  const handleSync = async () => {
-    if (!isLoggedIn()) {
-      toast.error("Sign in to sync notes");
-      return;
-    }
-    setSyncing(true);
-    try {
-      const { pulled, pushed, deleted } = await syncNotes();
-      await loadNotes();
-      const parts = [`${pushed} pushed`, `${pulled} pulled`];
-      if (deleted > 0) parts.push(`${deleted} deleted`);
-      toast.success(`Synced — ${parts.join(", ")}`);
-    } catch (err) {
-      toast.error(err.message || "Sync failed");
-    } finally {
-      setSyncing(false);
-    }
+  const handleAfterRestore = async () => {
+    await loadNotes();
+    refreshCloud();
   };
 
-  if (!authed) {
-    return <AuthScreen onAuth={handleAuth} />;
-  }
+  const handleAfterBackup = async () => {
+    refreshCloud();
+  };
 
   return (
     <VaultProvider>
@@ -146,12 +139,12 @@ const App = () => {
         isUnlocked={isUnlockedRef.current?.() ?? false}
         onLock={handleLock}
         notesCount={notes.length}
-        onSync={handleSync}
-        syncing={syncing}
-        isOnline={isLoggedIn()}
+        cloudState={cloud.state}
+        cloudLatest={cloud.latest}
+        onOpenBackup={handleOpenBackup}
         isLocalOnly={!isLoggedIn()}
         onLogout={handleLogout}
-        onSignIn={handleSignInRequest}
+        onSignIn={handleOpenBackup}
       />
       <main className="flex flex-1 overflow-hidden">
         <NoteList
@@ -195,6 +188,12 @@ const App = () => {
           isComposingNew={isComposingNew}
         />
       </main>
+      <BackupPanel
+        open={backupOpen}
+        onOpenChange={setBackupOpen}
+        onRestoreComplete={handleAfterRestore}
+        onAfterBackup={handleAfterBackup}
+      />
       <Toaster
         position="top-right"
         toastOptions={{

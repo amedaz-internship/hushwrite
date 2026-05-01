@@ -91,4 +91,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),
+
+  listSnapshots: () => request("/api/v1/snapshots", { method: "GET" }),
+
+  getSnapshot: (id) =>
+    request(`/api/v1/snapshots/${encodeURIComponent(id)}`, { method: "GET" }),
+
+  createSnapshot: (payload) =>
+    request("/api/v1/snapshots", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  patchSnapshot: (id, patch) =>
+    request(`/api/v1/snapshots/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteSnapshot: (id) =>
+    request(`/api/v1/snapshots/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

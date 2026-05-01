@@ -3,6 +3,7 @@ import { cors } from "./middleware/cors.js";
 import auth from "./routes/auth.js";
 import notes from "./routes/notes.js";
 import sync from "./routes/sync.js";
+import snapshots from "./routes/snapshots.js";
 
 const app = new Hono();
 
@@ -22,6 +23,7 @@ app.get("/", (c) => {
 app.route("/auth", auth);
 app.route("/api/v1/notes", notes);
 app.route("/api/v1/sync", sync);
+app.route("/api/v1/snapshots", snapshots);
 
 // 404 fallback
 app.notFound((c) => {

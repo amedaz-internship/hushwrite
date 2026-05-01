@@ -8,7 +8,6 @@ import {
   deleteNote as dbDeleteNote,
   deleteImage,
 } from "../js/db";
-import { queueDeleteForSync } from "../js/sync";
 import {
   deriveKey,
   encryptContent,
@@ -432,7 +431,6 @@ export function useNoteSession({
       await Promise.all(note.imageIds.map((id) => deleteImage(id)));
     }
     await dbDeleteNote(currentId);
-    queueDeleteForSync(currentId);
     await finalizeDelete();
   }, [currentId, askPassphrase, finalizeDelete]);
 
@@ -446,7 +444,6 @@ export function useNoteSession({
       await Promise.all(note.imageIds.map((id) => deleteImage(id)));
     }
     await dbDeleteNote(currentId);
-    queueDeleteForSync(currentId);
     await finalizeDelete();
   }, [currentId, finalizeDelete]);
 
@@ -466,7 +463,6 @@ export function useNoteSession({
       await Promise.all(note.imageIds.map((id) => deleteImage(id)));
     }
     await dbDeleteNote(currentId);
-    queueDeleteForSync(currentId);
     await finalizeDelete();
   }, [currentId, vaultEnabled, finalizeDelete]);
 

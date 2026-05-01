@@ -70,3 +70,30 @@ export const deleteImage = async (id) => {
   const db = await initDB();
   await db.delete(IMAGES_STORE, id);
 };
+
+export const getAllImages = async () => {
+  const db = await initDB();
+  return db.getAll(IMAGES_STORE);
+};
+
+// Atomically replace the entire local store with a snapshot's contents.
+// Used by restore — wipes both stores in a single transaction so a partial
+// restore can't leave the device in a half-state.
+export const replaceAll = async ({ notes = [], images = [], vaultMeta = null }) => {
+  const db = await initDB();
+  const tx = db.transaction([NOTES_STORE, IMAGES_STORE], "readwrite");
+  const notesStore = tx.objectStore(NOTES_STORE);
+  const imagesStore = tx.objectStore(IMAGES_STORE);
+  await notesStore.clear();
+  await imagesStore.clear();
+  for (const note of notes) {
+    await notesStore.put(note);
+  }
+  if (vaultMeta) {
+    await notesStore.put({ ...vaultMeta, id: VAULT_META_ID });
+  }
+  for (const image of images) {
+    await imagesStore.put(image);
+  }
+  await tx.done;
+};

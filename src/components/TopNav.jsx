@@ -254,7 +254,86 @@ const AboutPage = ({ open, onClose }) => {
   );
 };
 
-const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, isOnline = false, isLocalOnly = false, onLogout, onSignIn }) => {
+const CloudBadge = ({ state, latest, onClick }) => {
+  const map = {
+    "no-account": {
+      icon: "cloud_off",
+      label: "Local only",
+      tooltip: "Sign in to set up backup",
+      tone: "muted",
+    },
+    "no-snapshots": {
+      icon: "cloud_upload",
+      label: "Set up backup",
+      tooltip: "No backups yet — create your first one",
+      tone: "primary",
+    },
+    "up-to-date": {
+      icon: "cloud_done",
+      label: "Up to date",
+      tooltip: "Local matches the latest backup",
+      tone: "success",
+    },
+    "needs-backup": {
+      icon: "cloud_upload",
+      label: "Changes not backed up",
+      tooltip: "You have local edits since the last backup",
+      tone: "primary",
+    },
+    "newer-available": {
+      icon: "cloud_download",
+      label: latest?.device_label
+        ? `Newer backup · ${latest.device_label}`
+        : "Newer backup available",
+      tooltip: "Another device pushed a newer backup",
+      tone: "primary",
+    },
+    diverged: {
+      icon: "cloud_sync",
+      label: "Action needed",
+      tooltip: "This device has unsaved changes and another device pushed a newer backup. Open Backup to choose what to keep.",
+      tone: "warn",
+    },
+    error: {
+      icon: "cloud_off",
+      label: "Backup unavailable",
+      tooltip: "Couldn't reach the backup server",
+      tone: "muted",
+    },
+    loading: {
+      icon: "progress_activity",
+      label: "Checking…",
+      tooltip: "Checking backup status",
+      tone: "muted",
+    },
+  };
+  const entry = map[state] || map.loading;
+  const toneClass = {
+    muted: "border-outline-variant/30 bg-surface-container text-on-surface-variant",
+    primary: "border-vault-primary/40 bg-primary-container/15 text-vault-primary",
+    success: "border-vault-primary/30 bg-primary-container/10 text-vault-primary",
+    warn: "border-error/40 bg-error/10 text-error",
+  }[entry.tone];
+
+  return (
+    <button
+      onClick={onClick}
+      title={entry.tooltip}
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-95",
+        toneClass,
+      )}
+    >
+      <Icon
+        name={entry.icon}
+        className={cn("text-sm", state === "loading" && "animate-spin")}
+      />
+      <span>{entry.label}</span>
+    </button>
+  );
+};
+
+const TopNav = ({ isUnlocked, onLock, notesCount = 0, cloudState = "loading", cloudLatest = null, onOpenBackup, isLocalOnly = false, onLogout, onSignIn }) => {
   const { theme, toggleTheme } = useTheme();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -280,19 +359,11 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
           </nav>
         </div>
         <div className="flex items-center gap-4">
-          {isLocalOnly && (
-            <button
-              onClick={onSignIn}
-              title="Sign in to sync your notes across devices"
-              className="flex items-center gap-1.5 rounded-lg border border-vault-primary/30 bg-primary-container/10 px-3 py-1.5 text-xs font-semibold text-vault-primary transition-all hover:bg-primary-container/20 active:scale-95"
-            >
-              <Icon name="cloud_off" className="text-sm" />
-              <span>Local only</span>
-              <span className="hidden text-[10px] font-medium uppercase tracking-wider text-vault-primary/70 sm:inline">
-                · Sign in to sync
-              </span>
-            </button>
-          )}
+          <CloudBadge
+            state={isLocalOnly ? "no-account" : cloudState}
+            latest={cloudLatest}
+            onClick={isLocalOnly ? onSignIn : onOpenBackup}
+          />
           <button
             onClick={onLock}
             disabled={!isUnlocked}
@@ -305,20 +376,6 @@ const TopNav = ({ isUnlocked, onLock, notesCount = 0, onSync, syncing = false, i
             <span>{isUnlocked ? "Lock Session" : "Locked"}</span>
           </button>
           <div className="flex items-center gap-2">
-            {isOnline && (
-              <button
-                onClick={onSync}
-                disabled={syncing}
-                title="Sync notes"
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-medium text-vault-primary transition-all hover:bg-surface-container-highest active:scale-95",
-                  syncing && "cursor-not-allowed opacity-50",
-                )}
-              >
-                <Icon name="sync" className={cn("text-sm", syncing && "animate-spin")} />
-                <span>{syncing ? "Syncing…" : "Sync"}</span>
-              </button>
-            )}
             <button
               onClick={toggleTheme}
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
