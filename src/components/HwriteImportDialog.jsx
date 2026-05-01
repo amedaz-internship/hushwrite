@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileInput, Lock, Unlock } from "lucide-react";
+import { FileInput, Lock, Unlock, FileText, Shield } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,18 +9,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-// Single-step import dialog: show metadata, user confirms.
-// Encrypted files are stored as-is — the export passphrase is asked for only
-// when the note is later opened in the editor.
 const HwriteImportDialog = ({
   parsed,
   fileSize,
+  hasVault,
   onConfirm,
   onCancel,
 }) => {
+  const [destination, setDestination] = useState("notes");
+  const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Only the encrypted-into-vault path needs the source passphrase up front,
+  // so we can decrypt with the file's key and re-encrypt under the vault key.
+  // Encrypted-into-notes keeps the original ciphertext; the user enters the
+  // file's passphrase the first time they open the note.
+  const needsPassphrase = parsed.encrypted && destination === "vault";
 
   const fmtDate = (iso) => {
     try {
@@ -39,10 +46,33 @@ const HwriteImportDialog = ({
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
   };
 
+  const blurb = () => {
+    if (destination === "notes") {
+      return parsed.encrypted
+        ? "Stored encrypted in your notes. The file's passphrase is required the first time you open it."
+        : "Loaded into the editor as a new draft. Save it with your own passphrase to add it to your notes.";
+    }
+    return parsed.encrypted
+      ? hasVault
+        ? "Decrypted with the file's passphrase, then re-encrypted with your vault key."
+        : "Decrypted with the file's passphrase, then encrypted with the new vault you create."
+      : hasVault
+        ? "Encrypted with your vault key and added to your vault."
+        : "Encrypted with the new vault you create and added to it.";
+  };
+
   const handleConfirmPreview = async () => {
+    if (needsPassphrase && !passphrase) {
+      setError("Enter the file's passphrase to import it into your vault.");
+      return;
+    }
     setBusy(true);
+    setError("");
     try {
-      await onConfirm();
+      await onConfirm({
+        destination,
+        passphrase: needsPassphrase ? passphrase : undefined,
+      });
     } catch (err) {
       setError(err.message || "Failed to import file.");
       setBusy(false);
@@ -59,9 +89,7 @@ const HwriteImportDialog = ({
           <DialogHeader>
             <DialogTitle>Import .hwrite file</DialogTitle>
             <DialogDescription>
-              {parsed.encrypted
-                ? "The file stays encrypted in your library. You'll be asked for its passphrase the first time you open it."
-                : "Review the file before adding it to your notes."}
+              Choose where to put it.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -114,17 +142,92 @@ const HwriteImportDialog = ({
                 <div className="text-foreground">.hwrite v{parsed.hwrite}</div>
               </div>
             </div>
-
-            <p className="rounded-md bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
-              {parsed.encrypted
-                ? "Stored encrypted in your library. The export passphrase will be required the first time you open it. You can change it later from the note's info menu."
-                : "Loaded into the editor as a new draft. Save it with your own passphrase to add it to your library. You can change it later from the note's info menu."}
-            </p>
-
-            {error && (
-              <p className="text-xs text-destructive">{error}</p>
-            )}
           </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            Destination
+          </div>
+          <div
+            role="radiogroup"
+            aria-label="Import destination"
+            className="grid grid-cols-2 gap-2"
+          >
+            {[
+              {
+                id: "notes",
+                label: "Notes",
+                desc: "Standard library",
+                icon: FileText,
+              },
+              {
+                id: "vault",
+                label: "Vault",
+                desc: hasVault ? "Vault-encrypted" : "Create a vault",
+                icon: Shield,
+              },
+            ].map((opt) => {
+              const active = destination === opt.id;
+              const IconCmp = opt.icon;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => {
+                    setDestination(opt.id);
+                    setError("");
+                  }}
+                  disabled={busy}
+                  className={cn(
+                    "flex flex-col items-start gap-1 rounded-lg border px-3 py-2 text-left transition-all",
+                    active
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/40"
+                      : "border-border bg-background hover:bg-muted/50",
+                  )}
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <IconCmp className="h-4 w-4" />
+                    {opt.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {needsPassphrase && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                File passphrase
+              </label>
+              <input
+                type="password"
+                autoFocus
+                value={passphrase}
+                onChange={(e) => {
+                  setPassphrase(e.target.value);
+                  setError("");
+                }}
+                disabled={busy}
+                placeholder="Passphrase used when this .hwrite was exported"
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Needed once to decrypt the file before re-encrypting it with your vault key.
+              </p>
+            </div>
+          )}
+
+          <p className="rounded-md bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+            {blurb()}
+          </p>
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
 
         <DialogFooter>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>

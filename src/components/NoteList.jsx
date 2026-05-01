@@ -544,83 +544,108 @@ const NoteList = ({
         <HwriteImportDialog
           parsed={importState.parsed}
           fileSize={importState.fileSize}
-          onConfirm={async () => {
+          hasVault={vault.hasVault}
+          onConfirm={async ({ destination, passphrase }) => {
             const { parsed } = importState;
-            if (parsed.encrypted) {
-              const { ciphertext, iv, salt } = hwriteEnvelopeToBytes(parsed);
-              const now = new Date().toISOString();
-              await saveNote({
-                id: uuid4(),
-                ciphertext,
-                iv,
-                salt,
-                title: parsed.title,
-                imageIds: [],
-                vault: false,
-                createdAt: parsed.created || now,
-                updatedAt: parsed.modified || now,
-              });
-              setImportState(null);
-              onNotesChanged?.(await getAllNotes());
-              toast.success(`Imported "${parsed.title}" — locked until opened`);
-            } else {
-              const raw = await decryptHwrite(parsed, undefined);
-              // Move any inline data: images into the images store so the
-              // editor receives a lightweight markdown string.
-              const result = await rehydrateInlineImages(raw);
-              const markdown = result.markdown || "";
-              const imageIds = result.imageIds || [];
+            const titleText = parsed.title || "Untitled";
 
-              const titleText = parsed.title || "Untitled";
-
-              if (!vault.isVaultUnlocked) {
-                // Stash the parsed file; the unlock effect picks it up the
-                // moment the vault opens. Switch the user to the Vault tab so
-                // the gate UI is visible without forcing them back to Notes.
-                setPendingVaultImport({
-                  markdown,
-                  title: titleText,
-                  imageIds,
-                  createdAt: parsed.created,
+            if (destination === "notes") {
+              if (parsed.encrypted) {
+                // Save the encrypted envelope as-is. The user supplies the
+                // file's passphrase the first time they open it.
+                const { ciphertext, iv, salt } = hwriteEnvelopeToBytes(parsed);
+                const now = new Date().toISOString();
+                await saveNote({
+                  id: uuid4(),
+                  ciphertext,
+                  iv,
+                  salt,
+                  title: parsed.title,
+                  imageIds: [],
+                  vault: false,
+                  createdAt: parsed.created || now,
+                  updatedAt: parsed.modified || now,
                 });
                 setImportState(null);
-                onSectionChange?.("vault");
-                toast(
-                  vault.hasVault
-                    ? "Unlock your vault to finish importing"
-                    : "Create your vault to finish importing",
-                  { icon: "🔐" },
-                );
-                return;
+                onNotesChanged?.(await getAllNotes());
+                onSectionChange?.("notes");
+                toast.success(`Imported "${parsed.title}" — locked until opened`);
+              } else {
+                // Plaintext to notes: load into editor as a draft so the user
+                // can save it under their own passphrase.
+                const raw = await decryptHwrite(parsed, undefined);
+                const result = await rehydrateInlineImages(raw);
+                const markdown = result.markdown || "";
+                setImportState(null);
+                onSectionChange?.("notes");
+                onImportNote?.({ markdown, title: titleText });
               }
-
-              const now = new Date().toISOString();
-              const { ciphertext, iv } = await encryptContent(
-                markdown,
-                vault.vaultKey,
-              );
-              const { ciphertext: titleCiphertext, iv: titleIv } =
-                await encryptContent(titleText, vault.vaultKey);
-
-              await saveNote({
-                id: uuid4(),
-                ciphertext,
-                iv,
-                salt: vault.vaultSalt,
-                title: "",
-                titleCiphertext,
-                titleIv,
-                imageIds,
-                vault: true,
-                createdAt: parsed.created || now,
-                updatedAt: parsed.modified || now,
-              });
-
-              setImportState(null);
-              onNotesChanged?.(await getAllNotes());
-              onSectionChange?.("vault");
-              toast.success(`"${titleText}" added to your vault`);
+              return;
             }
+
+            // destination === "vault" — always re-encrypt under the vault key.
+            let raw;
+            if (parsed.encrypted) {
+              try {
+                raw = await decryptHwrite(parsed, passphrase);
+              } catch {
+                throw new Error(
+                  "Wrong passphrase, or the file is corrupted.",
+                );
+              }
+            } else {
+              raw = await decryptHwrite(parsed, undefined);
+            }
+            const result = await rehydrateInlineImages(raw);
+            const markdown = result.markdown || "";
+            const imageIds = result.imageIds || [];
+
+            if (!vault.isVaultUnlocked) {
+              // Defer until the user unlocks/creates the vault. The effect
+              // above flushes the pending import once vaultKey is available.
+              setPendingVaultImport({
+                markdown,
+                title: titleText,
+                imageIds,
+                createdAt: parsed.created,
+              });
+              setImportState(null);
+              onSectionChange?.("vault");
+              toast(
+                vault.hasVault
+                  ? "Unlock your vault to finish importing"
+                  : "Create your vault to finish importing",
+                { icon: "🔐" },
+              );
+              return;
+            }
+
+            const now = new Date().toISOString();
+            const { ciphertext, iv } = await encryptContent(
+              markdown,
+              vault.vaultKey,
+            );
+            const { ciphertext: titleCiphertext, iv: titleIv } =
+              await encryptContent(titleText, vault.vaultKey);
+
+            await saveNote({
+              id: uuid4(),
+              ciphertext,
+              iv,
+              salt: vault.vaultSalt,
+              title: "",
+              titleCiphertext,
+              titleIv,
+              imageIds,
+              vault: true,
+              createdAt: parsed.created || now,
+              updatedAt: parsed.modified || now,
+            });
+
+            setImportState(null);
+            onNotesChanged?.(await getAllNotes());
+            onSectionChange?.("vault");
+            toast.success(`"${titleText}" added to your vault`);
           }}
           onCancel={() => setImportState(null)}
         />
